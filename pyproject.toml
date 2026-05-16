@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doc-knowledge"
+version = "0.1.0"
+description = "文档知识提取工具：将 Office 文档批量转换为结构化 Markdown 知识库"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "小布", email = ""}
+]
+keywords = ["document", "markdown", "knowledge", "converter", "extraction"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# 核心依赖（轻量）
+dependencies = [
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "python-docx>=1.0.0",
+    "chardet>=5.0.0",
+]
+
+[project.optional-dependencies]
+# PDF 支持
+pdf = [
+    "PyMuPDF>=1.23.0",
+]
+
+# PPT 支持
+ppt = [
+    "python-pptx>=0.6.23",
+]
+
+# Excel 支持
+excel = [
+    "openpyxl>=3.1.0",
+]
+
+# 图片处理（OCR）
+ocr = [
+    "Pillow>=10.0.0",
+]
+
+# 完整功能
+full = [
+    "doc-knowledge[pdf,ppt,excel,ocr]",
+]
+
+# 开发依赖
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "doc-knowledge[full]",
+]
+
+[project.scripts]
+doc-knowledge = "doc_knowledge.cli:main"
+dck = "doc_knowledge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
