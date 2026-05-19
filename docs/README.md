@@ -10,3 +10,7 @@
 | [使用指南](./usage-guide.md) | 完整使用文档 |
 | [CLI参考](./cli-reference.md) | 命令参考手册 |
 | [故障排查](./troubleshooting.md) | 常见问题 |
+| [快速入门](./quick-start.md) | 5 分钟上手 |
+| [使用指南](./usage-guide.md) | 完整使用文档 |
+| [CLI参考](./cli-reference.md) | 命令参考手册 |
+| [故障排查](./troubleshooting.md) | 常见问题 |

@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "doc-knowledge"
-version = "0.1.0"
+version = "0.2.0"
 description = "文档知识提取工具：将 Office 文档批量转换为结构化 Markdown 知识库"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "小布", email = ""}
+    {name = "小布"}
 ]
 keywords = ["document", "markdown", "knowledge", "converter", "extraction"]
 classifiers = [
@@ -23,11 +23,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
-# 核心依赖（轻量）
+# 核心依赖
 dependencies = [
     "click>=8.1.0",
     "rich>=13.0.0",
-    "python-docx>=1.0.0",
+    "markitdown>=0.1.0",
     "chardet>=5.0.0",
 ]
 

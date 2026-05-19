@@ -144,6 +144,19 @@ docs-project/
 - 设计为可选依赖（`pip install doc-knowledge[full]`）
 - 未来成熟后可集成为 MemoMind 插件
 
+## 四、测试优先规则（不可违背）
+
+> 本节为 MemoMind 项目对全局 **法则六：测试优先原则** 的具体化。
+
+- **TDD铁律**：任何新功能、Bug修复、重构，必须**先写失败测试，再写生产代码**。使用 `/skill test-driven-development` 获取完整方法论。
+- **Prove-It**：修 Bug 第一件事是写一个能复现它的失败测试——测试通过才证明修复成功。
+- **测试命令**：
+  - 后端（pytest）：`make test`（详细：`python -m pytest tests/ -v --tb=short`）
+  - 覆盖率：`make test-all`（`python -m pytest tests/ -v --cov=core --cov=api --cov=mcp_server`）
+- **Test Double 偏好**：Real > Fake > Stub > Mock。优先使用真实代码，避免过度 mock。
+- **DAMP > DRY**：测试代码追求可读性（每个测试自包含讲一个故事），可接受适度重复。
+- **测试文档**：测试计划和报告存放在 `docs-project/06-test-docs/`。
+
 ---
 
 *(判断准则是否生效的标准：Diff 中不必要的改动变少了；因为过度设计导致的重写变少了；澄清问题发生在写代码之前，而不是写错代码之后。)*

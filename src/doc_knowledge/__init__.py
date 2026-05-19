@@ -5,18 +5,12 @@ Doc-Knowledge: 文档知识提取工具
 支持去重、价值提取，并导出到 Obsidian 或 MemoMind。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-from .converters import BaseConverter, DocxConverter, PdfConverter, get_converter_registry, find_converter
-from .injector import MarkdownInjector, ConversionStats
+from .converters import convert_file, get_supported_extensions
 
 __all__ = [
     "__version__",
-    "BaseConverter",
-    "DocxConverter",
-    "PdfConverter",
-    "get_converter_registry",
-    "find_converter",
-    "MarkdownInjector",
-    "ConversionStats",
+    "convert_file",
+    "get_supported_extensions",
 ]
