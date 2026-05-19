@@ -32,6 +32,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Web UI
+webui = [
+    "gradio>=5.0.0",
+]
+
 # PDF 支持
 pdf = [
     "PyMuPDF>=1.23.0",
