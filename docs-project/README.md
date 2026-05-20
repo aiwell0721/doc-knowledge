@@ -1,7 +1,7 @@
 # Doc-Knowledge 项目文档索引
 
 > **文档分类体系**：扁平 6 类
-> **最后更新**：2026-05-19
+> **最后更新**：2026-05-20
 
 ---
 
@@ -62,6 +62,7 @@ docs-project/
 |---|------|------|------|
 | 01 | [Phase 1 开发计划](./05-development-plan/01-Phase1开发计划.md) | MVP 全链路 A→B→C→导出 | v0.3.0 ✅ |
 | 02 | [Phase 2 开发计划](./05-development-plan/02-Phase2开发计划.md) | 企业级增强（MemoMind/SimHash/合并/OCR/增量） | v0.2.0 ✅ |
+| 03 | [Phase 4 开发计划](./05-development-plan/03-Phase4开发计划.md) | 质量加固 + 多维度测试 + Bug 修复 | v0.1.0 🔄 |
 
 ## 第6类：测试文档 (`06-test-docs/`)
 
@@ -71,3 +72,4 @@ docs-project/
 | 02 | [Phase3测试补充计划](./06-test-docs/02-Phase3测试补充计划.md) | E2E/错误处理/边界条件测试计划 | v0.1.0 |
 | 03 | [测试审计报告](./06-test-docs/03-测试审计报告.md) | CLAUDE.md §四 规则合规审计 | v0.2.0 |
 | 04 | [测试工作流规范](./06-test-docs/04-测试工作流规范.md) | TDD/Prove-It/覆盖率规范 | v0.1.0 |
+| 05 | [多维度测试报告](./06-test-docs/05-多维度测试报告.md) | Phase 4 六维度全覆盖 | v0.1.0 ✅ |
