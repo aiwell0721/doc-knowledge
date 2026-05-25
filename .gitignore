@@ -32,4 +32,25 @@ Thumbs.db
 
 # Env
 .env
+
+# Temp / Output / Coverage
 temp/
+output/
+output-test/
+.coverage.*
+
+# Test docs (large binary samples - 不上传到 git)
+test-docs/*.pdf
+test-docs/*.pptx
+test-docs/*.ppt
+test-docs/*.doc
+test-docs/*.docx
+test-docs/*.jpg
+test-docs/*.jpeg
+test-docs/*.png
+test-docs/*.gif
+test-docs/*.bmp
+test-docs/*.tiff
+
+# Project docs build artifacts
+docs-project/**/build/
