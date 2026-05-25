@@ -30,8 +30,13 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Env
+# Env / Secrets (防止密钥泄露)
 .env
+.env.*
+*.key
+*.pem
+secrets/
+config/secrets.*
 
 # Temp / Output / Coverage
 temp/
@@ -51,6 +56,11 @@ test-docs/*.png
 test-docs/*.gif
 test-docs/*.bmp
 test-docs/*.tiff
+
+# Stray scratch / scan scripts in repo root
+.scan_secrets.py
+/test_vision.py
+/test_batch_vision.py
 
 # Project docs build artifacts
 docs-project/**/build/
