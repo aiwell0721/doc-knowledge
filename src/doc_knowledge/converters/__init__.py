@@ -192,7 +192,13 @@ def _extract_pptx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Pa
 
 
 def _extract_docx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Path]]:
-    """从 DOCX 文件中提取所有图片，每个文件独立的图片目录"""
+    """从 DOCX 文件中提取所有图片，每个文件独立的图片目录
+
+    返回顺序按文件名中的数字部分排序（image1, image2, ..., image10, image11），
+    而不是字典序（会得到 image1, image10, image11, image2, ...）。
+    Word 写入 media 时通常用 imageN.png 自然命名，数字序与文档流顺序基本一致。
+    """
+    import re
     import zipfile
 
     images_dir = output_dir / f"{filepath.name}_images"
@@ -203,6 +209,7 @@ def _extract_docx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Pa
     try:
         with zipfile.ZipFile(filepath) as zf:
             media_files = [f for f in zf.namelist() if f.startswith('word/media/')]
+            media_files.sort(key=_image_sort_key)
             for media_file in media_files:
                 image_data = zf.read(media_file)
                 image_name = Path(media_file).name
@@ -217,8 +224,31 @@ def _extract_docx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Pa
     return image_count, image_paths
 
 
+def _image_sort_key(name: str):
+    """图片文件名排序键：优先按数字部分，回退到字典序
+
+    examples:
+      "word/media/image1.png"  → (0, 1, "image1.png")
+      "word/media/image10.png" → (0, 10, "image10.png")
+      "word/media/cover.jpg"   → (1, 0, "cover.jpg")  # 无数字，字典序兜底
+    """
+    import re
+    basename = Path(name).name
+    m = re.search(r'(\d+)', basename)
+    if m:
+        return (0, int(m.group(1)), basename)
+    return (1, 0, basename)
+
+
 def _build_image_map(markdown: str, image_paths: list[Path], source_name: str) -> dict[str, str]:
-    """扫描 Markdown 中实际图片引用，按位置与提取的图片路径匹配"""
+    """扫描 Markdown 中实际图片引用，按位置与提取的图片路径匹配
+
+    限制：依赖"MarkItDown 输出的图片引用顺序 ≡ 我们从文档提取的图片顺序"。
+    PPTX 用 slide→shape 遍历（与 MarkItDown 一致）；
+    DOCX 用 image{N}.png 数字序（见 _image_sort_key）。
+    若文档使用非数字命名或多图布局复杂，映射可能错位——
+    彻底修复需用 python-docx 解析 <a:blip r:embed> 文档流顺序。
+    """
     import re
 
     if not image_paths:

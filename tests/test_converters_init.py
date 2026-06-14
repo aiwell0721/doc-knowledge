@@ -196,6 +196,41 @@ class TestDocxImageExtraction:
         assert images == 0
         assert image_map == {}
 
+    def test_docx_image_extraction_numeric_order(self, tmp_path):
+        """DOCX 含 image1..image11 时应按数字而非字典序排列。
+
+        字典序下：image1 < image10 < image11 < image2 → 错误
+        数字序下：image1 < image2 < ... < image10 < image11 → 正确
+        """
+        from doc_knowledge.converters import _extract_docx_images
+        import zipfile
+
+        # 构造一个包含 11 个 media 文件名的最小 DOCX 结构
+        fp = tmp_path / "many_images.docx"
+        # 最小 1x1 PNG
+        import base64
+        png_data = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+h"
+            "HgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+        )
+
+        with zipfile.ZipFile(fp, "w") as zf:
+            zf.writestr("[Content_Types].xml", "<dummy/>")  # 满足 zip 结构即可
+            # 故意按字典序的反序写入：image11 先，image1 最后
+            for i in [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]:
+                zf.writestr(f"word/media/image{i}.png", png_data)
+
+        out = tmp_path / "out"
+        out.mkdir()
+        count, paths = _extract_docx_images(fp, out)
+        assert count == 11
+
+        # 验证返回顺序：image1, image2, ..., image11
+        names = [p.name for p in paths]
+        assert names == [f"image{i}.png" for i in range(1, 12)], (
+            f"图片应按数字顺序返回，实际：{names}"
+        )
+
 
 class TestPptxImageExtraction:
     """PPTX 图片提取"""
