@@ -5,7 +5,7 @@ Doc-Knowledge: 文档知识提取工具
 支持去重、价值提取，并导出到 Obsidian 或 MemoMind。
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .converters import convert_file, get_supported_extensions
 

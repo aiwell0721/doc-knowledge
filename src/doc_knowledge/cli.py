@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from doc_knowledge import __version__
+from doc_knowledge.config import load_config
 from doc_knowledge.converters import convert_file, get_supported_extensions
 from doc_knowledge.extractors.deduplicator import Deduplicator
 from doc_knowledge.extractors.scorer import ValueScorer
@@ -22,6 +23,7 @@ from doc_knowledge.exporters.obsidian import ObsidianExporter, MarkdownExporter
 from doc_knowledge.exporters.memomind import MemoMindExporter, MemoMindMCPExporter
 from doc_knowledge.extractors.merger import VersionMerger
 from doc_knowledge.extractors.simhash_dedup import SimHashDeduplicator
+from doc_knowledge.ocr import create_ocr_service
 from doc_knowledge.utils import make_frontmatter
 from doc_knowledge.vision import LLMVisionService
 
@@ -53,7 +55,15 @@ def main():
 @click.option("--dry-run", is_flag=True,
               help="仅显示将要转换的文件，不实际转换")
 @click.option("--vision", is_flag=True,
-              help="启用大模型图片识别（需要配置 API）")
+              help="[已弃用] 请使用 --ocr cloud")
+@click.option("--ocr", "ocr_mode", type=click.Choice(["cloud", "local", "hybrid"]),
+              help="OCR 模式")
+@click.option("--ocr-api-url", "ocr_api_url", default="",
+              help="OCR API 地址（OpenAI 兼容）")
+@click.option("--ocr-api-key", "ocr_api_key", default="",
+              help="OCR API Key")
+@click.option("--ocr-model", "ocr_model", default="",
+              help="OCR 模型名称")
 @click.option("--api-url", "vision_api_url", default="",
               help="大模型 API 地址（OpenAI 兼容）")
 @click.option("--api-key", "vision_api_key", default="",
@@ -63,7 +73,8 @@ def main():
 @click.option("-v", "--verbose", is_flag=True,
               help="详细输出")
 def convert(source_dir, output_dir, formats, recursive, overwrite, dry_run,
-            vision, vision_api_url, vision_api_key, vision_model, verbose):
+            vision, ocr_mode, ocr_api_url, ocr_api_key, ocr_model,
+            vision_api_url, vision_api_key, vision_model, verbose):
     """将文档转换为 Markdown 镜像（A → B）"""
     source_dir = source_dir.resolve()
     if output_dir is None:
@@ -74,132 +85,39 @@ def convert(source_dir, output_dir, formats, recursive, overwrite, dry_run,
     console.print(f"源目录: [cyan]{source_dir}[/cyan]")
     console.print(f"输出目录: [cyan]{output_dir}[/cyan]")
 
-    # 初始化视觉识别服务
+    # --vision 已弃用，映射为 --ocr cloud
+    if vision and not ocr_mode:
+        ocr_mode = "cloud"
+        console.print("[yellow]--vision 已弃用，请改用 --ocr cloud[/yellow]")
+
     vision_service = None
     if vision and vision_api_key:
         api_url = vision_api_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
         vision_service = LLMVisionService(
-            api_url=api_url,
-            api_key=vision_api_key,
-            model=vision_model,
+            api_url=api_url, api_key=vision_api_key, model=vision_model,
         )
         console.print(f"[dim]图片识别: {vision_model} ({api_url})[/dim]")
     elif vision and not vision_api_key:
         console.print("[yellow]警告：--vision 已启用但未提供 --api-key，跳过图片识别[/yellow]")
-    all_files = list(source_dir.rglob("*") if recursive else source_dir.iterdir())
-    all_files = [f for f in all_files if f.is_file()]
 
-    if not all_files:
-        console.print("[yellow]未找到任何文件[/yellow]")
+    # OCR 服务
+    ocr_service = _setup_ocr(ocr_mode, ocr_api_url, ocr_api_key, ocr_model)
+
+    stats = _run_convert(
+        source_dir, output_dir,
+        formats=list(formats) if formats else None,
+        recursive=recursive, verbose=verbose,
+        vision_service=vision_service,
+        ocr_service=ocr_service,
+        dry_run=dry_run,
+    )
+
+    if dry_run:
+        for f in stats.get("to_convert", []):
+            console.print(f"  [MD] {f.relative_to(source_dir)}")
+        for f in stats.get("to_copy", []):
+            console.print(f"  [CP] {f.relative_to(source_dir)}")
         return
-
-    # 过滤可转换的文件
-    supported = set(get_supported_extensions())
-    format_filter = set(f".{f.lower().lstrip('.')}" for f in formats) if formats else None
-
-    to_convert = []
-    to_copy = []  # 图片等
-    to_skip = []  # 不支持的格式
-
-    for f in sorted(all_files):
-        ext = f.suffix.lower()
-        if format_filter and ext not in format_filter:
-            continue
-        if ext in supported:
-            to_convert.append(f)
-        elif ext in {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}:
-            to_copy.append(f)
-        else:
-            to_skip.append(f)
-
-    if dry_run or verbose:
-        console.print(f"[dim]可转换: {len(to_convert)}, 图片: {len(to_copy)}, 其他: {len(to_skip)}[/dim]")
-        if dry_run:
-            for f in to_convert:
-                console.print(f"  [MD] {f.relative_to(source_dir)}")
-            for f in to_copy:
-                console.print(f"  [CP] {f.relative_to(source_dir)}")
-            return
-
-    # 执行转换
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stats = {"converted": 0, "copied": 0, "skipped": 0, "errors": 0, "images": 0}
-
-    with Progress(
-        SpinnerColumn(), BarColumn(), TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("转换中...", total=len(to_convert))
-
-        for source_file in to_convert:
-            rel = source_file.relative_to(source_dir)
-            progress.update(task, description=f"转换: {rel}")
-
-            try:
-                result = convert_file(
-                    source_file, 
-                    output_dir=output_dir, 
-                    vision_service=vision_service,
-                    verbose=verbose,
-                )
-                if isinstance(result, tuple):
-                    markdown, images, image_map = result
-                else:
-                    markdown = result
-                    images = 0
-                    image_map = {}
-                
-                # Update image references in markdown
-                if image_map:
-                    for old_name, new_path in image_map.items():
-                        markdown = markdown.replace(f"]({old_name})", f"]({new_path})")
-                
-                frontmatter = make_frontmatter(
-                    title=source_file.stem,
-                    source_path=source_file.resolve(),
-                    source_relative=str(rel),
-                    original_format=source_file.suffix.lstrip("."),
-                )
-                if images > 0:
-                    frontmatter += f"images_extracted: {images}\n"
-                
-                output_file = output_dir / rel.parent / f"{source_file.name}.md"
-                output_file.parent.mkdir(parents=True, exist_ok=True)
-                output_file.write_text(frontmatter + markdown, encoding="utf-8")
-                
-                stats["converted"] += 1
-                stats["images"] += images
-                if verbose and images > 0:
-                    console.print(f"  [green]+ {rel}: {images} images extracted[/green]")
-            except Exception as e:
-                stats["errors"] += 1
-                if verbose:
-                    err_msg = str(e)[:200].encode("ascii", errors="replace").decode("ascii")
-                    console.print(f"  [red]X {rel}: {err_msg}[/red]")
-
-            progress.advance(task)
-
-    # 复制图片
-    for img in to_copy:
-        rel = img.relative_to(source_dir)
-        dest = output_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(img, dest)
-        stats["copied"] += 1
-
-    # 其他文件：复制 + 元数据包装
-    for other in to_skip:
-        rel = other.relative_to(source_dir)
-        dest = output_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(other, dest)
-        wrapper = dest.parent / f"{other.name}.md"
-        wrapper.write_text(make_frontmatter(
-            title=other.name, source_path=other.resolve(),
-            source_relative=str(rel), original_format=other.suffix.lstrip("."),
-            conversion_status="skipped",
-        ), encoding="utf-8")
-        stats["skipped"] += 1
 
     console.print()
     console.print(f"[bold green]完成！转换 {stats['converted']}, 图片 {stats['images']}, "
@@ -443,7 +361,15 @@ def export_cmd(knowledge_dir, target_type, vault_path, output_dir, api_url, api_
 @click.option("--incremental", is_flag=True,
               help="增量更新（仅处理变更文件）")
 @click.option("--vision", is_flag=True,
-              help="启用大模型图片识别（需要配置 API）")
+              help="[已弃用] 请使用 --ocr cloud")
+@click.option("--ocr", "ocr_mode", type=click.Choice(["cloud", "local", "hybrid"]),
+              help="OCR 模式")
+@click.option("--ocr-api-url", "ocr_api_url", default="",
+              help="OCR API 地址（OpenAI 兼容）")
+@click.option("--ocr-api-key", "ocr_api_key", default="",
+              help="OCR API Key")
+@click.option("--ocr-model", "ocr_model", default="",
+              help="OCR 模型名称")
 @click.option("--vision-api-url", "vision_api_url", default="",
               help="大模型 API 地址（OpenAI 兼容）")
 @click.option("--vision-api-key", "vision_api_key", default="",
@@ -454,7 +380,8 @@ def export_cmd(knowledge_dir, target_type, vault_path, output_dir, api_url, api_
               help="详细输出")
 def pipeline(source_dir, final_output, target_type, vault_path, api_url, api_key, workspace, db_path,
              temp_dir, threshold, min_score, simhash, merge, incremental,
-             vision, vision_api_url, vision_api_key, vision_model, verbose):
+             vision, ocr_mode, ocr_api_url, ocr_api_key, ocr_model,
+             vision_api_url, vision_api_key, vision_model, verbose):
     """一键完成全流程（A → B → C → 导出）"""
     source_dir = source_dir.resolve()
 
@@ -471,6 +398,11 @@ def pipeline(source_dir, final_output, target_type, vault_path, api_url, api_key
     mirror_dir = work_dir / "mirror"
     extracted_dir = work_dir / "extracted"
 
+    # --vision 已弃用，映射为 --ocr cloud
+    if vision and not ocr_mode:
+        ocr_mode = "cloud"
+        console.print("[yellow]--vision 已弃用，请改用 --ocr cloud[/yellow]")
+
     # 初始化视觉识别服务
     vision_service = None
     if vision and vision_api_key:
@@ -484,10 +416,14 @@ def pipeline(source_dir, final_output, target_type, vault_path, api_url, api_key
     elif vision and not vision_api_key:
         console.print("[yellow]警告：--vision 已启用但未提供 --vision-api-key，跳过图片识别[/yellow]")
 
+    # OCR 服务
+    ocr_service = _setup_ocr(ocr_mode, ocr_api_url, ocr_api_key, ocr_model)
+
     try:
         # Step 1: convert (A → B)
         console.print("\n[bold]Step 1/3: 转换 (A → B)[/bold]")
-        _run_convert(source_dir, mirror_dir, verbose=verbose, vision_service=vision_service)
+        _run_convert(source_dir, mirror_dir, verbose=verbose,
+                     vision_service=vision_service, ocr_service=ocr_service)
 
         # Step 2: extract (B → C)
         console.print("\n[bold]Step 2/3: 提取 (B → C)[/bold]")
@@ -538,26 +474,57 @@ def pipeline(source_dir, final_output, target_type, vault_path, api_url, api_key
 # 工具函数
 # ──────────────────────────────────────────────
 
-def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=False, vision_service=None):
-    """convert 的内部逻辑（供 pipeline 调用）"""
+def _setup_ocr(ocr_mode, ocr_api_url="", ocr_api_key="", ocr_model=""):
+    """根据 CLI 参数 + 配置文件创建 OCR 服务"""
+    cfg = load_config()
+
+    if ocr_mode:
+        cfg.ocr.enabled = True
+        cfg.ocr.mode = ocr_mode
+    if ocr_api_url:
+        cfg.ocr.cloud.api_url = ocr_api_url
+    if ocr_api_key:
+        cfg.ocr.cloud.api_key = ocr_api_key
+    if ocr_model:
+        cfg.ocr.cloud.model = ocr_model
+
+    if not cfg.ocr.enabled:
+        return None
+
+    try:
+        return create_ocr_service(cfg)
+    except NotImplementedError as e:
+        if cfg.ocr.mode == "local" and cfg.ocr.local.engine == "paddleocr":
+            console.print(
+                f"[yellow]PaddleOCR 不可用（{e}），回退到 Tesseract[/yellow]"
+            )
+            cfg.ocr.local.engine = "tesseract"
+            try:
+                return create_ocr_service(cfg)
+            except Exception:
+                pass
+        console.print(f"[yellow]警告：{e}[/yellow]")
+        return None
+
+def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=False,
+                 vision_service=None, ocr_service=None, dry_run=False):
+    """convert 核心逻辑（CLI 和 pipeline 共用），返回 stats dict"""
     source_dir = source_dir.resolve()
     output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     all_files = list(source_dir.rglob("*") if recursive else source_dir.iterdir())
     all_files = [f for f in all_files if f.is_file()]
 
+    stats = {"converted": 0, "copied": 0, "skipped": 0, "errors": 0, "images": 0}
+
     if not all_files:
         console.print("[yellow]未找到任何文件[/yellow]")
-        return
+        return stats
 
     supported = set(get_supported_extensions())
     format_filter = set(f".{f.lower().lstrip('.')}" for f in (formats or [])) if formats else None
 
-    to_convert = []
-    to_copy = []
-    to_skip = []
-
+    to_convert, to_copy, to_skip = [], [], []
     for f in sorted(all_files):
         ext = f.suffix.lower()
         if format_filter and ext not in format_filter:
@@ -569,7 +536,16 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
         else:
             to_skip.append(f)
 
-    stats = {"converted": 0, "copied": 0, "skipped": 0, "errors": 0, "images": 0}
+    if verbose or dry_run:
+        console.print(f"[dim]可转换: {len(to_convert)}, 图片: {len(to_copy)}, 其他: {len(to_skip)}[/dim]")
+
+    if dry_run:
+        stats["to_convert"] = to_convert
+        stats["to_copy"] = to_copy
+        stats["to_skip"] = to_skip
+        return stats
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     with Progress(
         SpinnerColumn(), BarColumn(), TextColumn("[progress.description]{task.description}"),
@@ -581,9 +557,9 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
             progress.update(task, description=f"转换: {rel}")
             try:
                 result = convert_file(
-                    source_file, 
-                    output_dir=output_dir, 
+                    source_file, output_dir=output_dir,
                     vision_service=vision_service,
+                    ocr_service=ocr_service,
                     verbose=verbose,
                 )
                 if isinstance(result, tuple):
@@ -592,11 +568,11 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
                     markdown = result
                     images = 0
                     image_map = {}
-                
+
                 if image_map:
                     for old_name, new_path in image_map.items():
                         markdown = markdown.replace(f"]({old_name})", f"]({new_path})")
-                
+
                 frontmatter = make_frontmatter(
                     title=source_file.stem, source_path=source_file.resolve(),
                     source_relative=str(rel), original_format=source_file.suffix.lstrip("."),
@@ -639,6 +615,8 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
 
     console.print(f"[dim]转换: {stats['converted']}, 图片: {stats['images']}, "
                   f"复制: {stats['copied']}, 跳过: {stats['skipped']}, 错误: {stats['errors']}[/dim]")
+
+    return stats
 
 
 def _run_extract(mirror_dir, output_dir, threshold=0.85, min_score=30,
@@ -708,6 +686,7 @@ def _run_extract(mirror_dir, output_dir, threshold=0.85, min_score=30,
             continue
         content = _add_extract_frontmatter(doc["content"], doc)
         rel = doc["path"].relative_to(mirror_dir)
+        content = _fixup_image_refs(content, rel, mirror_dir.name)
         dest = output_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content, encoding="utf-8")
@@ -715,6 +694,29 @@ def _run_extract(mirror_dir, output_dir, threshold=0.85, min_score=30,
 
     console.print(f"[dim]保留: {stats['kept']}, 去重: {len(duplicates)}, "
                   f"低分: {stats['low_score']}, 合并: {len([d for d in duplicates if 'merged_into' in d])}[/dim]")
+
+
+def _fixup_image_refs(markdown: str, rel_path: Path, mirror_name: str) -> str:
+    """将 Markdown 中的图片引用改为指向镜像目录 B
+
+    从 C（或最终输出）通过相对路径指回 B 中的图片文件。
+    """
+    import re
+
+    depth = len(rel_path.parent.parts) if str(rel_path.parent) != '.' else 0
+    prefix = '../' * (depth + 1) + mirror_name + '/'
+    rel_dir = str(rel_path.parent).replace('\\', '/')
+    if rel_dir and rel_dir != '.':
+        prefix += rel_dir + '/'
+
+    def rewrite(match):
+        ref = match.group(2)
+        # 已修复的或外部链接不重复处理
+        if ref.startswith(('http://', 'https://', '../')):
+            return match.group(0)
+        return f"![{match.group(1)}]({prefix}{ref})"
+
+    return re.sub(r'!\[([^\]]*)\]\(([^)]+)\)', rewrite, markdown)
 
 
 def _add_extract_frontmatter(content: str, doc: dict) -> str:

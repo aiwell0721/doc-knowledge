@@ -1,7 +1,7 @@
 # Doc-Knowledge 项目文档索引
 
 > **文档分类体系**：扁平 6 类
-> **最后更新**：2026-05-20
+> **最后更新**：2026-05-26
 
 ---
 
@@ -49,12 +49,13 @@ docs-project/
 | # | 文档 | 说明 | 版本 |
 |---|------|------|------|
 | 01 | [CLI 设计规范](./04-detailed-design/01-CLI设计规范.md) | 命令设计 | v0.1.0 |
-| 02 | [转换器设计](./04-detailed-design/02-转换器设计.md) | 格式转换实现 | v0.2.0 |
+| 02 | [转换器设计](./04-detailed-design/02-转换器设计.md) | MarkItDown 封装 + 图片提取 + 视觉识别 | v0.3.0 |
 | 03 | [提取器设计](./04-detailed-design/03-提取器设计.md) | 去重/价值评分算法 | v0.1.0 |
 | 04 | [技术选型与方案](./04-detailed-design/04-技术选型与方案.md) | 开源方案调研 + 技术决策 | v0.1.0 |
 | 05 | [Phase2详细设计](./04-detailed-design/05-Phase2详细设计.md) | MemoMind导出/SimHash/版本合并/增量更新 | v0.1.0 |
 | 06 | [图片识别设计](./04-detailed-design/06-图片识别设计.md) | 大模型视觉识别/OCR集成方案 | v0.1.0 |
 | 07 | [Web UI设计](./04-detailed-design/07-Web%20UI设计.md) | Gradio 可视化面板/5标签页/动态表单 | v0.1.0 |
+| 08 | [OCR 统一管道设计](./04-detailed-design/08-OCR统一管道设计.md) | 云端/本地/混合三模式，PaddleOCR/Tesseract 引擎 | v0.1.0 |
 
 ## 第5类：产品开发计划 (`05-development-plan/`)
 
@@ -72,4 +73,4 @@ docs-project/
 | 02 | [Phase3测试补充计划](./06-test-docs/02-Phase3测试补充计划.md) | E2E/错误处理/边界条件测试计划 | v0.1.0 |
 | 03 | [测试审计报告](./06-test-docs/03-测试审计报告.md) | CLAUDE.md §四 规则合规审计 | v0.2.0 |
 | 04 | [测试工作流规范](./06-test-docs/04-测试工作流规范.md) | TDD/Prove-It/覆盖率规范 | v0.1.0 |
-| 05 | [多维度测试报告](./06-test-docs/05-多维度测试报告.md) | Phase 4 六维度全覆盖 | v0.1.0 ✅ |
+| 05 | [多维度测试报告](./06-test-docs/05-多维度测试报告.md) | Phase 4 六维度全覆盖 | v1.0.0 ✅ |

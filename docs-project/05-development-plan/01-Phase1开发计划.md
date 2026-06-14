@@ -26,7 +26,7 @@
 
 | # | 任务 | 类型 | 预估 | 依赖 | 备注 |
 |---|------|------|------|------|------|
-| 1 | 安装 MarkItDown + 清理旧转换器 | 基建 | 2h | - | 删除 pdf/docx_converter.py |
+| 1 | 安装 MarkItDown + 清理旧转换器 | 基建 | 2h | - | 2026-05-26 完成：删除 base.py/docx_converter.py/pdf_converter.py/injector.py 及对应测试 |
 | 2 | MarkItDown 封装 + convert 命令 | convert | 3h | 1 | 核心转换逻辑 |
 | 3 | 反向链接注入器 | convert | 2h | 2 | 自研 |
 | 4 | 语义去重器 (TF-IDF) | extract | 4h | - | 自研，零外部依赖 |

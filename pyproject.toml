@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "doc-knowledge"
-version = "0.2.0"
+version = "0.3.0"
 description = "文档知识提取工具：将 Office 文档批量转换为结构化 Markdown 知识库"
 readme = "README.md"
 license = {text = "MIT"}

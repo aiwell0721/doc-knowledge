@@ -45,6 +45,7 @@ output-test/
 .coverage.*
 
 # Test docs (large binary samples - 不上传到 git)
+test-docs/
 test-docs/*.pdf
 test-docs/*.pptx
 test-docs/*.ppt
@@ -64,3 +65,6 @@ test-docs/*.tiff
 
 # Project docs build artifacts
 docs-project/**/build/
+
+# Claude Code / Superpowers scratch directory
+.superpowers/
