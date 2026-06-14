@@ -104,21 +104,6 @@ def test_convert_verbose_output():
         assert "转换" in result.output or "完成" in result.output
 
 
-def test_convert_warning_without_api_key():
-    """convert --vision 无 --api-key 应该显示警告"""
-    runner = CliRunner()
-    with tempfile.TemporaryDirectory() as tmpdir:
-        source = Path(tmpdir) / "source"
-        source.mkdir()
-        (source / "test.txt").write_text("content", encoding="utf-8")
-
-        result = runner.invoke(main, [
-            "convert", str(source), "--vision", "--dry-run"
-        ])
-        assert result.exit_code == 0
-        assert "警告" in result.output or "api-key" in result.output.lower()
-
-
 # ──────────────────────────────────────────────
 # extract 命令补充测试
 # ──────────────────────────────────────────────
@@ -400,21 +385,6 @@ def test_pipeline_with_temp_dir():
             "--temp-dir", str(work)
         ])
         assert result.exit_code == 0
-
-
-def test_pipeline_vision_warning():
-    """pipeline --vision 无 --vision-api-key 应该显示警告"""
-    runner = CliRunner()
-    with tempfile.TemporaryDirectory() as tmpdir:
-        source = Path(tmpdir) / "source"
-        source.mkdir()
-        (source / "test.txt").write_text("content", encoding="utf-8")
-
-        result = runner.invoke(main, [
-            "pipeline", str(source), "--vision", "--target", "markdown"
-        ])
-        assert result.exit_code == 0
-        assert "警告" in result.output or "api" in result.output.lower()
 
 
 # ──────────────────────────────────────────────

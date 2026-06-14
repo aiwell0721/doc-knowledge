@@ -134,13 +134,13 @@ class TestConvertFileWithOutputDir:
         assert images == 0
         assert image_map == {}
 
-    def test_with_vision_service_none(self, tmp_path):
-        """vision_service=None 时不应崩溃"""
+    def test_with_ocr_service_none(self, tmp_path):
+        """ocr_service=None 时不应崩溃"""
         fp = tmp_path / "test.txt"
         fp.write_text("Content", encoding="utf-8")
         out = tmp_path / "out"
         out.mkdir()
-        md, images, image_map = convert_file(fp, output_dir=out, vision_service=None)
+        md, images, image_map = convert_file(fp, output_dir=out, ocr_service=None)
         assert "Content" in md
 
 

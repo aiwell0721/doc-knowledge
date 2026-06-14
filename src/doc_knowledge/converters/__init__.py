@@ -53,7 +53,6 @@ def _render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
 def convert_file(
     filepath: Path,
     output_dir: Optional[Path] = None,
-    vision_service=None,
     ocr_service=None,
     verbose: bool = False,
 ) -> tuple[str, int, dict[str, str]]:
@@ -63,7 +62,7 @@ def convert_file(
     Args:
         filepath: 源文件路径
         output_dir: 输出目录（用于保存图片）
-        vision_service: 可选的视觉识别服务
+        ocr_service: 可选的 OCR 服务（统一接口，详见 ocr/base.py）
         verbose: 是否输出详细信息
 
     Returns:
@@ -120,12 +119,13 @@ def convert_file(
     # 映射值使用相对于 .md 文件所在目录的路径（B 内自洽）
     image_map = _build_image_map(markdown, image_paths, filepath.name)
 
-    # 使用大模型识别图片内容（批量 + 过滤 + 并发）
-    if vision_service and image_paths:
+    # 嵌入图片识别（PPTX/DOCX）：保留原图引用，追加 blockquote 描述
+    # 注意：扫描型 PDF 整页识别在前面已处理，此处仅处理嵌入图片
+    if ocr_service and image_paths and filepath.suffix.lower() in {'.pptx', '.docx'}:
         if verbose:
-            print(f"  开始识别 {len(image_paths)} 张图片（过滤 + 并发）...")
+            print(f"  开始识别 {len(image_paths)} 张图片（OCR）...")
 
-        batch_results = vision_service.recognize_images_batch(image_paths, verbose=verbose)
+        batch_results = ocr_service.recognize_batch(image_paths, verbose=verbose)
 
         for img_path, description in batch_results.items():
             if description and not description.startswith("["):

@@ -74,12 +74,12 @@ def do_convert(source, output, format_filter, recursive, overwrite, dry_run,
     if dry_run:
         cmd += ["--dry-run"]
     if vision:
-        cmd += ["--vision"]
+        cmd += ["--ocr", "cloud"]
         if api_url:
-            cmd += ["--api-url", api_url]
+            cmd += ["--ocr-api-url", api_url]
         if api_key:
-            cmd += ["--api-key", api_key]
-        cmd += ["--model", model or "qwen-vl-plus"]
+            cmd += ["--ocr-api-key", api_key]
+        cmd += ["--ocr-model", model or "qwen-vl-plus"]
     if verbose:
         cmd += ["-v"]
 
@@ -177,13 +177,13 @@ def do_pipeline(source, output, target, vault_path, api_url, api_key, workspace,
     if incremental:
         cmd += ["--incremental"]
     if vision:
-        cmd += ["--vision"]
+        cmd += ["--ocr", "cloud"]
         if vision_api_url:
-            cmd += ["--vision-api-url", vision_api_url]
+            cmd += ["--ocr-api-url", vision_api_url]
         if vision_api_key:
-            cmd += ["--vision-api-key", vision_api_key]
+            cmd += ["--ocr-api-key", vision_api_key]
         if vision_model:
-            cmd += ["--vision-model", vision_model]
+            cmd += ["--ocr-model", vision_model]
     if verbose:
         cmd += ["-v"]
 

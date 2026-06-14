@@ -25,7 +25,6 @@ from doc_knowledge.extractors.merger import VersionMerger
 from doc_knowledge.extractors.simhash_dedup import SimHashDeduplicator
 from doc_knowledge.ocr import create_ocr_service
 from doc_knowledge.utils import make_frontmatter
-from doc_knowledge.vision import LLMVisionService
 
 
 console = Console()
@@ -54,8 +53,6 @@ def main():
               help="覆盖已存在的文件")
 @click.option("--dry-run", is_flag=True,
               help="仅显示将要转换的文件，不实际转换")
-@click.option("--vision", is_flag=True,
-              help="[已弃用] 请使用 --ocr cloud")
 @click.option("--ocr", "ocr_mode", type=click.Choice(["cloud", "local", "hybrid"]),
               help="OCR 模式")
 @click.option("--ocr-api-url", "ocr_api_url", default="",
@@ -64,17 +61,10 @@ def main():
               help="OCR API Key")
 @click.option("--ocr-model", "ocr_model", default="",
               help="OCR 模型名称")
-@click.option("--api-url", "vision_api_url", default="",
-              help="大模型 API 地址（OpenAI 兼容）")
-@click.option("--api-key", "vision_api_key", default="",
-              help="大模型 API Key")
-@click.option("--model", "vision_model", default="qwen-vl-plus",
-              help="大模型名称")
 @click.option("-v", "--verbose", is_flag=True,
               help="详细输出")
 def convert(source_dir, output_dir, formats, recursive, overwrite, dry_run,
-            vision, ocr_mode, ocr_api_url, ocr_api_key, ocr_model,
-            vision_api_url, vision_api_key, vision_model, verbose):
+            ocr_mode, ocr_api_url, ocr_api_key, ocr_model, verbose):
     """将文档转换为 Markdown 镜像（A → B）"""
     source_dir = source_dir.resolve()
     if output_dir is None:
@@ -85,29 +75,13 @@ def convert(source_dir, output_dir, formats, recursive, overwrite, dry_run,
     console.print(f"源目录: [cyan]{source_dir}[/cyan]")
     console.print(f"输出目录: [cyan]{output_dir}[/cyan]")
 
-    # --vision 已弃用，映射为 --ocr cloud
-    if vision and not ocr_mode:
-        ocr_mode = "cloud"
-        console.print("[yellow]--vision 已弃用，请改用 --ocr cloud[/yellow]")
-
-    vision_service = None
-    if vision and vision_api_key:
-        api_url = vision_api_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        vision_service = LLMVisionService(
-            api_url=api_url, api_key=vision_api_key, model=vision_model,
-        )
-        console.print(f"[dim]图片识别: {vision_model} ({api_url})[/dim]")
-    elif vision and not vision_api_key:
-        console.print("[yellow]警告：--vision 已启用但未提供 --api-key，跳过图片识别[/yellow]")
-
-    # OCR 服务
+    # OCR 服务（统一管道，处理嵌入图片 + 扫描型 PDF）
     ocr_service = _setup_ocr(ocr_mode, ocr_api_url, ocr_api_key, ocr_model)
 
     stats = _run_convert(
         source_dir, output_dir,
         formats=list(formats) if formats else None,
         recursive=recursive, verbose=verbose,
-        vision_service=vision_service,
         ocr_service=ocr_service,
         dry_run=dry_run,
     )
@@ -360,8 +334,6 @@ def export_cmd(knowledge_dir, target_type, vault_path, output_dir, api_url, api_
               help="启用版本合并")
 @click.option("--incremental", is_flag=True,
               help="增量更新（仅处理变更文件）")
-@click.option("--vision", is_flag=True,
-              help="[已弃用] 请使用 --ocr cloud")
 @click.option("--ocr", "ocr_mode", type=click.Choice(["cloud", "local", "hybrid"]),
               help="OCR 模式")
 @click.option("--ocr-api-url", "ocr_api_url", default="",
@@ -370,18 +342,11 @@ def export_cmd(knowledge_dir, target_type, vault_path, output_dir, api_url, api_
               help="OCR API Key")
 @click.option("--ocr-model", "ocr_model", default="",
               help="OCR 模型名称")
-@click.option("--vision-api-url", "vision_api_url", default="",
-              help="大模型 API 地址（OpenAI 兼容）")
-@click.option("--vision-api-key", "vision_api_key", default="",
-              help="大模型 API Key")
-@click.option("--vision-model", "vision_model", default="qwen-vl-plus",
-              help="大模型名称")
 @click.option("-v", "--verbose", is_flag=True,
               help="详细输出")
 def pipeline(source_dir, final_output, target_type, vault_path, api_url, api_key, workspace, db_path,
              temp_dir, threshold, min_score, simhash, merge, incremental,
-             vision, ocr_mode, ocr_api_url, ocr_api_key, ocr_model,
-             vision_api_url, vision_api_key, vision_model, verbose):
+             ocr_mode, ocr_api_url, ocr_api_key, ocr_model, verbose):
     """一键完成全流程（A → B → C → 导出）"""
     source_dir = source_dir.resolve()
 
@@ -398,32 +363,14 @@ def pipeline(source_dir, final_output, target_type, vault_path, api_url, api_key
     mirror_dir = work_dir / "mirror"
     extracted_dir = work_dir / "extracted"
 
-    # --vision 已弃用，映射为 --ocr cloud
-    if vision and not ocr_mode:
-        ocr_mode = "cloud"
-        console.print("[yellow]--vision 已弃用，请改用 --ocr cloud[/yellow]")
-
-    # 初始化视觉识别服务
-    vision_service = None
-    if vision and vision_api_key:
-        api_url_v = vision_api_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        vision_service = LLMVisionService(
-            api_url=api_url_v,
-            api_key=vision_api_key,
-            model=vision_model,
-        )
-        console.print(f"[dim]图片识别: {vision_model}[/dim]")
-    elif vision and not vision_api_key:
-        console.print("[yellow]警告：--vision 已启用但未提供 --vision-api-key，跳过图片识别[/yellow]")
-
-    # OCR 服务
+    # OCR 服务（统一管道，处理嵌入图片 + 扫描型 PDF）
     ocr_service = _setup_ocr(ocr_mode, ocr_api_url, ocr_api_key, ocr_model)
 
     try:
         # Step 1: convert (A → B)
         console.print("\n[bold]Step 1/3: 转换 (A → B)[/bold]")
         _run_convert(source_dir, mirror_dir, verbose=verbose,
-                     vision_service=vision_service, ocr_service=ocr_service)
+                     ocr_service=ocr_service)
 
         # Step 2: extract (B → C)
         console.print("\n[bold]Step 2/3: 提取 (B → C)[/bold]")
@@ -507,7 +454,7 @@ def _setup_ocr(ocr_mode, ocr_api_url="", ocr_api_key="", ocr_model=""):
         return None
 
 def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=False,
-                 vision_service=None, ocr_service=None, dry_run=False):
+                 ocr_service=None, dry_run=False):
     """convert 核心逻辑（CLI 和 pipeline 共用），返回 stats dict"""
     source_dir = source_dir.resolve()
     output_dir = output_dir.resolve()
@@ -558,7 +505,6 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
             try:
                 result = convert_file(
                     source_file, output_dir=output_dir,
-                    vision_service=vision_service,
                     ocr_service=ocr_service,
                     verbose=verbose,
                 )
