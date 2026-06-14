@@ -1,7 +1,24 @@
 # Doc-Knowledge CLI 设计规范
 
 **创建时间**：2026-05-17
-**版本**：v0.1.0
+**更新日期**：2026-06-14
+**版本**：v0.2.0
+
+---
+
+> **2026-06-14 代码组织调整**：CLI 实现从单文件 `cli.py`（724 行）拆分为 `cli/` 包。每个命令一个文件，共享逻辑收敛到 `_helpers.py` 与 `_options.py`。`from doc_knowledge.cli import main` 入口保持不变（通过 `cli/__init__.py` re-export），命令行使用无任何变化。
+>
+> ```
+> src/doc_knowledge/cli/
+> ├── __init__.py     # 装配 main group + 注册子命令 + re-export main
+> ├── _helpers.py     # console 单例 + _setup_ocr / _run_convert / _run_extract / ...
+> ├── _options.py     # 共享 click 装饰器：ocr_options, memomind_options
+> ├── convert.py
+> ├── extract.py
+> ├── export.py
+> ├── pipeline.py
+> └── webui.py
+> ```
 
 ---
 
