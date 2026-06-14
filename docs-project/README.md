@@ -63,7 +63,8 @@ docs-project/
 |---|------|------|------|
 | 01 | [Phase 1 开发计划](./05-development-plan/01-Phase1开发计划.md) | MVP 全链路 A→B→C→导出 | v0.3.0 ✅ |
 | 02 | [Phase 2 开发计划](./05-development-plan/02-Phase2开发计划.md) | 企业级增强（MemoMind/SimHash/合并/OCR/增量） | v0.2.0 ✅ |
-| 03 | [Phase 4 开发计划](./05-development-plan/03-Phase4开发计划.md) | 质量加固 + 多维度测试 + Bug 修复 | v0.1.0 🔄 |
+| 03 | [Phase 4 开发计划](./05-development-plan/03-Phase4开发计划.md) | 质量加固 + 多维度测试 + Bug 修复 | v0.1.0 ✅ |
+| 04 | [Phase 5 开发计划](./05-development-plan/04-Phase5开发计划.md) | P3 清理 + webui 拆分 + API 美化 + 覆盖率追踪 | v0.1.0 📋 |
 
 ## 第6类：测试文档 (`06-test-docs/`)
 
