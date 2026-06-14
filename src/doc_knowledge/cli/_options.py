@@ -17,8 +17,8 @@ def ocr_options(f):
     f = click.option("--ocr-api-url", "ocr_api_url", default="",
                      help="OCR API 地址（OpenAI 兼容）")(f)
     f = click.option("--ocr", "ocr_mode",
-                     type=click.Choice(["cloud", "local", "hybrid"]),
-                     help="OCR 模式")(f)
+                     type=click.Choice(["cloud", "local"]),
+                     help="OCR 模式（hybrid 尚未实现）")(f)
     return f
 
 

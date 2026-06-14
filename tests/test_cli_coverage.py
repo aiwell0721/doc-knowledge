@@ -416,3 +416,18 @@ def test_subcommand_help():
     for cmd in ["convert", "extract", "export", "pipeline", "webui"]:
         result = runner.invoke(main, [cmd, "--help"])
         assert result.exit_code == 0, f"{cmd} --help failed"
+
+
+def test_ocr_hybrid_rejected_by_cli():
+    """--ocr hybrid 应该被 click Choice 拒绝（未实现，避免误用）"""
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "source"
+        source.mkdir()
+        (source / "test.txt").write_text("content", encoding="utf-8")
+
+        for cmd in ["convert", "pipeline"]:
+            result = runner.invoke(main, [cmd, str(source), "--ocr", "hybrid"])
+            assert result.exit_code != 0, f"{cmd} --ocr hybrid should be rejected"
+            # click 对 Choice 越界的标准错误信息
+            assert "hybrid" in result.output.lower() or "invalid" in result.output.lower()

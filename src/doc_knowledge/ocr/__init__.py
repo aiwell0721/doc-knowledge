@@ -1,4 +1,8 @@
-"""OCR 服务层 — 统一管道，三种模式"""
+"""OCR 服务层 — 统一管道
+
+当前已实现：cloud（VLM API）、local（Tesseract）
+未实现：hybrid（混合策略，配置类已预留）
+"""
 
 from doc_knowledge.config import Config
 from doc_knowledge.ocr.base import OCRService
@@ -21,10 +25,11 @@ def create_ocr_service(config: Config) -> OCRService | None:
             max_concurrency=cloud.max_concurrency,
             timeout=cloud.timeout,
         )
-    elif mode == "local":
+    if mode == "local":
         local = config.ocr.local
         return LocalOCRService(engine=local.engine, lang=local.lang)
-    elif mode == "hybrid":
-        raise NotImplementedError("混合 OCR 模式尚未实现")
-    else:
-        return None
+    if mode == "hybrid":
+        raise NotImplementedError(
+            "混合 OCR 模式尚未实现，请使用 --ocr cloud 或 --ocr local"
+        )
+    return None

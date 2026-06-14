@@ -51,7 +51,7 @@ convert_file() —— 所有格式
 ```yaml
 ocr:
   enabled: false
-  mode: cloud               # cloud | local | hybrid
+  mode: cloud               # cloud | local  （hybrid 尚未实现，见 §4.2）
 
   cloud:
     api_url: "https://api.openai.com/v1"
@@ -65,6 +65,7 @@ ocr:
     lang: "ch"              # ch | en | ch+en
     gpu: false
 
+  # [WIP] 混合模式配置（当前未生效，CLI 也不接受 --ocr hybrid）
   hybrid:
     first_pass: local       # 第一阶段引擎
     confidence_threshold: 0.6
@@ -88,8 +89,8 @@ doc-knowledge convert <dir> --ocr cloud
 # 本地 OCR
 doc-knowledge convert <dir> --ocr local
 
-# 混合 OCR
-doc-knowledge convert <dir> --ocr hybrid
+# 混合 OCR — [WIP] 尚未实现，CLI 当前会拒绝该值
+# doc-knowledge convert <dir> --ocr hybrid
 
 # 覆盖配置文件中的 API 参数
 doc-knowledge convert <dir> --ocr cloud \
@@ -98,9 +99,20 @@ doc-knowledge convert <dir> --ocr cloud \
     --ocr-model "qwen-vl-plus"
 ```
 
-### 4.1 旧 `--vision` 兼容
+### 4.1 旧 `--vision` 选项（2026-06-14 已移除）
 
-`--vision` 保留，内部映射为 `--ocr cloud`，标记 deprecated。
+历史上 `--vision/--api-url/--api-key/--model` 与 `--ocr*` 并存，造成两条平行路径。
+0.3.0 起 `--vision` 系列被完全移除，请使用 `--ocr cloud` 系列。详见
+[02-转换器设计.md](./02-转换器设计.md) 的"2026-06-14 vision/ocr 概念合并"说明。
+
+### 4.2 hybrid 模式当前状态（[WIP]）
+
+`hybrid` 在配置类（`HybridOCRConfig`）和文档示例中预留，但**当前未实现**：
+
+- CLI 层：`--ocr hybrid` 会被 click `Choice` 拒绝，返回非零退出码
+- API 层：`create_ocr_service(cfg)` 传入 `mode="hybrid"` 会抛 `NotImplementedError`，提示改用 cloud / local
+
+未来实现时计划的策略见 § 5（已存的设计文档），但本节列出的 `ImageFilter` 三层决策当前仅作用于 `CloudOCRService` 内部的图片过滤，不构成混合策略。
 
 ## 5. 图片价值过滤器（混合模式核心）
 
