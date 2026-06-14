@@ -22,7 +22,7 @@ console = Console()
 def _get_client(db_path: str):
     """延迟导入 MemoMind SDK，未安装时给出友好报错"""
     try:
-        from api.client import MemoMind
+        from memomind import MemoMind
     except ImportError:
         raise ImportError(
             "MemoMind SDK 未安装，无法运行后处理。\n"
