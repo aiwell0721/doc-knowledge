@@ -12,8 +12,9 @@ from doc_knowledge.cli._helpers import (
     _setup_ocr,
     _run_convert,
     _run_extract,
+    _run_memomind_post_processing,
 )
-from doc_knowledge.cli._options import ocr_options, memomind_options
+from doc_knowledge.cli._options import ocr_options, memomind_options, memomind_post_options
 from doc_knowledge.exporters.obsidian import ObsidianExporter, MarkdownExporter
 from doc_knowledge.exporters.memomind import MemoMindExporter, MemoMindMCPExporter
 
@@ -29,6 +30,7 @@ from doc_knowledge.exporters.memomind import MemoMindExporter, MemoMindMCPExport
 @click.option("--vault", "vault_path", type=click.Path(path_type=Path),
               help="Obsidian Vault 路径")
 @memomind_options
+@memomind_post_options
 @click.option("--temp-dir", "temp_dir", type=click.Path(path_type=Path),
               help="临时目录（默认系统临时目录）")
 @click.option("--threshold", default=0.85, show_default=True,
@@ -44,7 +46,9 @@ from doc_knowledge.exporters.memomind import MemoMindExporter, MemoMindMCPExport
 @ocr_options
 @click.option("-v", "--verbose", is_flag=True,
               help="详细输出")
-def pipeline(source_dir, final_output, target_type, vault_path, api_url, api_key, workspace, db_path,
+def pipeline(source_dir, final_output, target_type, vault_path,
+             api_url, api_key, workspace, db_path,
+             run_dedup, run_consolidate,
              temp_dir, threshold, min_score, simhash, merge, incremental,
              ocr_mode, ocr_api_url, ocr_api_key, ocr_model, verbose):
     """一键完成全流程（A → B → C → 导出）"""
@@ -100,6 +104,9 @@ def pipeline(source_dir, final_output, target_type, vault_path, api_url, api_key
                 try:
                     stats = exporter.export(extracted_dir)
                     console.print(f"[green]导出 {stats['exported']} 个文件到 MemoMind[/green]")
+                    # MemoMind 后处理
+                    if db_path and (run_dedup or run_consolidate):
+                        _run_memomind_post_processing(db_path, workspace, run_dedup, run_consolidate)
                 except ConnectionError as e:
                     console.print(f"[yellow]{e}[/yellow]")
         else:

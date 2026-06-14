@@ -1,7 +1,7 @@
 # Doc-Knowledge 项目文档索引
 
 > **文档分类体系**：扁平 6 类
-> **最后更新**：2026-05-26
+> **最后更新**：2026-06-15
 
 ---
 
@@ -48,11 +48,11 @@ docs-project/
 
 | # | 文档 | 说明 | 版本 |
 |---|------|------|------|
-| 01 | [CLI 设计规范](./04-detailed-design/01-CLI设计规范.md) | 命令设计 | v0.1.0 |
+| 01 | [CLI 设计规范](./04-detailed-design/01-CLI设计规范.md) | 命令设计 | v0.3.0 |
 | 02 | [转换器设计](./04-detailed-design/02-转换器设计.md) | MarkItDown 封装 + 图片提取 + 视觉识别 | v0.3.0 |
 | 03 | [提取器设计](./04-detailed-design/03-提取器设计.md) | 去重/价值评分算法 | v0.1.0 |
 | 04 | [技术选型与方案](./04-detailed-design/04-技术选型与方案.md) | 开源方案调研 + 技术决策 | v0.1.0 |
-| 05 | [Phase2详细设计](./04-detailed-design/05-Phase2详细设计.md) | MemoMind导出/SimHash/版本合并/增量更新 | v0.1.0 |
+| 05 | [Phase2详细设计](./04-detailed-design/05-Phase2详细设计.md) | MemoMind导出/SimHash/版本合并/增量更新/后处理 | v0.2.0 |
 | 06 | [图片识别设计](./04-detailed-design/06-图片识别设计.md) | 大模型视觉识别/OCR集成方案 | v0.1.0 |
 | 07 | [Web UI设计](./04-detailed-design/07-Web%20UI设计.md) | Gradio 可视化面板/5标签页/动态表单 | v0.1.0 |
 | 08 | [OCR 统一管道设计](./04-detailed-design/08-OCR统一管道设计.md) | 云端/本地/混合三模式，PaddleOCR/Tesseract 引擎 | v0.1.0 |

@@ -9,6 +9,7 @@ import sqlite3
 import time
 import urllib.request
 import urllib.error
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -79,7 +80,7 @@ class MemoMindMCPExporter:
                     content = md_file.read_text(encoding="utf-8")
                     title, body, tags = _parse_frontmatter(content, md_file)
 
-                    now = int(time.time())
+                    now = datetime.now().isoformat()
                     cursor.execute(
                         "INSERT INTO notes (workspace_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
                         (workspace_id, title, body, now, now))
@@ -106,7 +107,7 @@ class MemoMindMCPExporter:
         row = cursor.fetchone()
         if row:
             return row[0]
-        cursor.execute("INSERT INTO workspaces (name, created_at) VALUES (?, ?)", (name, int(time.time())))
+        cursor.execute("INSERT INTO workspaces (name, created_at) VALUES (?, ?)", (name, datetime.now().isoformat()))
         return cursor.lastrowid
 
     def _get_or_create_tag(self, cursor, name: str) -> int:

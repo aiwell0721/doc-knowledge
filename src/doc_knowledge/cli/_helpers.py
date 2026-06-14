@@ -294,3 +294,35 @@ def _add_extract_frontmatter(content: str, doc: dict) -> str:
     else:
         header = f"---\n{extract_meta}---\n\n"
         return header + content
+
+
+def _run_memomind_post_processing(db_path, workspace, run_dedup, run_consolidate):
+    """执行 MemoMind 后处理（延迟导入）
+
+    Args:
+        db_path: Path 对象，MemoMind SQLite 数据库路径
+        workspace: 工作区名称
+        run_dedup: 是否运行去重扫描
+        run_consolidate: 是否运行知识整理建议
+    """
+    try:
+        from doc_knowledge.exporters.memomind_post import (
+            run_dedup_report,
+            run_consolidation_report,
+        )
+    except ImportError as e:
+        console.print(f"[yellow]后处理跳过：{e}[/yellow]")
+        return
+
+    db_str = str(db_path)
+    if run_dedup:
+        try:
+            run_dedup_report(db_str, workspace_name=workspace)
+        except Exception as e:
+            console.print(f"[yellow]去重扫描失败: {e}[/yellow]")
+
+    if run_consolidate:
+        try:
+            run_consolidation_report(db_str, workspace_name=workspace)
+        except Exception as e:
+            console.print(f"[yellow]知识整理失败: {e}[/yellow]")

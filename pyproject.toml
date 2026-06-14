@@ -57,9 +57,14 @@ ocr = [
     "Pillow>=10.0.0",
 ]
 
+# MemoMind 后处理
+memomind = [
+    "memomind>=2.0.0",
+]
+
 # 完整功能
 full = [
-    "doc-knowledge[pdf,ppt,excel,ocr]",
+    "doc-knowledge[pdf,ppt,excel,ocr,memomind]",
 ]
 
 # 开发依赖

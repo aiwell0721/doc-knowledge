@@ -36,7 +36,7 @@ def _create_memomind_db(tmpdir: str) -> Path:
         CREATE TABLE IF NOT EXISTS workspaces (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE,
-            created_at INTEGER
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     cursor.execute("""
@@ -45,8 +45,9 @@ def _create_memomind_db(tmpdir: str) -> Path:
             workspace_id INTEGER,
             title TEXT,
             content TEXT,
-            created_at INTEGER,
-            updated_at INTEGER
+            tags TEXT DEFAULT '[]',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     cursor.execute("""
@@ -235,3 +236,97 @@ def test_memomind_mcp_export_invalid_db():
             assert False, "Should have raised FileNotFoundError"
         except FileNotFoundError:
             pass  # 预期行为
+
+
+# ──────────────────────────────────────────────
+# 时间戳格式验证
+# ──────────────────────────────────────────────
+
+def test_timestamp_iso_format_in_notes():
+    """导出的 created_at/updated_at 必须是 ISO 格式字符串（兼容 datetime.fromisoformat）"""
+    from datetime import datetime as dt
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = _create_memomind_db(tmpdir)
+        knowledge = _create_test_knowledge_dir(tmpdir, count=1)
+
+        exporter = MemoMindMCPExporter(db_path, workspace="default")
+        exporter.export(knowledge)
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute("SELECT created_at, updated_at FROM notes")
+        row = cursor.fetchone()
+        conn.close()
+
+        # 验证时间戳是 ISO 格式字符串
+        assert row is not None
+        created_str = row[0]
+        updated_str = row[1]
+
+        # 应该能通过 datetime.fromisoformat() 解析
+        parsed_created = dt.fromisoformat(created_str)
+        parsed_updated = dt.fromisoformat(updated_str)
+
+        assert isinstance(parsed_created, dt)
+        assert isinstance(parsed_updated, dt)
+        # 时间戳应该在最近 60 秒内
+        import time
+        now = time.time()
+        assert abs(parsed_created.timestamp() - now) < 60
+        assert abs(parsed_updated.timestamp() - now) < 60
+
+
+def test_timestamp_iso_format_in_workspaces():
+    """工作区的 created_at 必须是 ISO 格式字符串"""
+    from datetime import datetime as dt
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = _create_memomind_db(tmpdir)
+        knowledge = _create_test_knowledge_dir(tmpdir, count=1)
+
+        exporter = MemoMindMCPExporter(db_path, workspace="test_ws")
+        exporter.export(knowledge)
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute("SELECT created_at FROM workspaces WHERE name = ?", ("test_ws",))
+        row = cursor.fetchone()
+        conn.close()
+
+        assert row is not None
+        # 应该能通过 datetime.fromisoformat() 解析
+        parsed = dt.fromisoformat(row[0])
+        assert isinstance(parsed, dt)
+
+
+def test_timestamp_not_integer():
+    """时间戳不能是整型 Unix epoch（MemoMind v2 from_row 不兼容）"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = _create_memomind_db(tmpdir)
+        knowledge = _create_test_knowledge_dir(tmpdir, count=1)
+
+        exporter = MemoMindMCPExporter(db_path, workspace="default")
+        exporter.export(knowledge)
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        cursor.execute("SELECT created_at, updated_at FROM notes")
+        row = cursor.fetchone()
+        cursor.execute("SELECT created_at FROM workspaces")
+        ws_row = cursor.fetchone()
+        conn.close()
+
+        # 验证所有时间戳字段都是字符串（非整型）
+        assert isinstance(row[0], str), f"created_at 应为 str 但得到 {type(row[0])}"
+        assert isinstance(row[1], str), f"updated_at 应为 str 但得到 {type(row[1])}"
+        assert isinstance(ws_row[0], str), f"workspace created_at 应为 str 但得到 {type(ws_row[0])}"
+
+        # 字符串不能以数字格式解析为 int（确保我们写的是 ISO 时间戳，不是 epoch）
+        # 注: "2026-06-15T..." 不能是 int，但 "1234567890" 可以是
+        for val in [row[0], row[1], ws_row[0]]:
+            try:
+                int(val)
+                assert False, f"时间戳 '{val}' 意外地可解析为整型——应该是 ISO 格式"
+            except ValueError:
+                pass  # 预期：ISO 字符串不能转换为 int

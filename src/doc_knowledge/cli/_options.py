@@ -33,3 +33,12 @@ def memomind_options(f):
     f = click.option("--api-url", "api_url", default="",
                      help="MemoMind API 地址")(f)
     return f
+
+
+def memomind_post_options(f):
+    """MemoMind 后处理选项（export / pipeline 共用）"""
+    f = click.option("--dedup", "run_dedup", is_flag=True,
+                     help="导出后运行 TF-IDF 语义去重扫描")(f)
+    f = click.option("--consolidate", "run_consolidate", is_flag=True,
+                     help="导出后运行知识整理建议（主题聚类/合并/陈旧检测）")(f)
+    return f

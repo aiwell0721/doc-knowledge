@@ -1,7 +1,8 @@
 # Doc-Knowledge Phase 2 详细设计
 
 **创建时间**：2026-05-17
-**版本**：v0.1.0
+**更新日期**：2026-06-15
+**版本**：v0.2.0
 
 ---
 
@@ -93,3 +94,51 @@ score = (文档价值评分, 内容长度, 文件修改时间)
 - 仅对已有输出目录有效
 - 首次运行无效
 - 不检测内容变更，仅检测时间戳
+
+---
+
+## 5. MemoMind 后处理模块
+
+### 5.1 概述
+
+`memomind_post.py` 提供导出后的智能处理能力，通过 MemoMind Python SDK 直接调用语义服务和知识图谱服务，无需 HTTP API 认证。
+
+### 5.2 功能
+
+| 功能 | 入口函数 | 调用的 MemoMind 服务 |
+|------|---------|---------------------|
+| 语义去重扫描 | `run_dedup_report()` | `SemanticService.scan_duplicates()` |
+| 知识整理建议 | `run_consolidation_report()` | `KnowledgeGraphService.suggest_consolidation()` |
+
+### 5.3 架构
+
+```
+doc-knowledge export --dedup --consolidate
+  └─ memomind_post.run_dedup_report(db_path)
+       └─ MemoMind(db_path)  # SDK 公共 API
+            ├─ ._semantic.scan_duplicates()    → TF-IDF + 余弦相似度
+            └─ ._kg.suggest_consolidation()    → Jaccard 相似度 + 陈旧检测
+```
+
+### 5.4 延迟导入
+
+`memomind_post.py` 使用延迟导入策略：
+- 模块级别不 `import memomind`
+- 函数内部 `try: from memomind.api.client import MemoMind` + `except ImportError: 友好报错`
+- 动机：MemoMind 是可选依赖，未安装时不应阻止正常导出流程
+
+### 5.5 数据库安全
+
+- 后处理仅**读取**笔记数据（扫描去重/整理建议），不执行写入/合并/删除
+- `scan_duplicates()` 和 `suggest_consolidation()` 均为只读操作
+- 如需实际合并，由用户根据报告手动执行
+
+### 5.6 CLI 集成
+
+```bash
+# 导出 + 去重扫描
+python -m doc_knowledge export <知识目录> -t memomind --db <路径> --dedup
+
+# 导出 + 整理建议
+python -m doc_knowledge export <知识目录> -t memomind --db <路径> --consolidate
+```

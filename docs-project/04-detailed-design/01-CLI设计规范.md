@@ -1,8 +1,8 @@
 # Doc-Knowledge CLI 设计规范
 
 **创建时间**：2026-05-17
-**更新日期**：2026-06-14
-**版本**：v0.2.0
+**更新日期**：2026-06-15
+**版本**：v0.3.0
 
 ---
 
@@ -12,7 +12,7 @@
 > src/doc_knowledge/cli/
 > ├── __init__.py     # 装配 main group + 注册子命令 + re-export main
 > ├── _helpers.py     # console 单例 + _setup_ocr / _run_convert / _run_extract / ...
-> ├── _options.py     # 共享 click 装饰器：ocr_options, memomind_options
+> ├── _options.py     # 共享 click 装饰器：ocr_options, memomind_options, memomind_post_options
 > ├── convert.py
 > ├── extract.py
 > ├── export.py
@@ -76,8 +76,11 @@ doc-knowledge export <knowledge_dir> [OPTIONS]
   --vault DIR         Obsidian Vault 路径
   --api-url URL       MemoMind API 地址
   --api-key KEY       MemoMind API Key
+  --db PATH           MemoMind SQLite 数据库路径（MCP 本地模式）
   --workspace NAME    MemoMind 工作区名称
   -o, --output DIR    Markdown 输出目录（当 target=markdown）
+  --dedup             导出后运行 MemoMind TF-IDF 语义去重扫描
+  --consolidate       导出后运行知识整理建议（主题聚类/合并建议/陈旧检测）
 ```
 
 ## 5. pipeline 命令
@@ -93,9 +96,12 @@ doc-knowledge pipeline <source_dir> [OPTIONS]
   -t, --target TYPE   导出目标（obsidian, memomind, markdown）
   --vault DIR         Obsidian Vault 路径
   --api-url URL       MemoMind API 地址
+  --db PATH           MemoMind SQLite 数据库路径（MCP 本地模式）
   --temp-dir DIR      临时目录（默认系统临时目录）
   --threshold FLOAT   去重阈值（默认 0.85）
   --min-score INT     最低价值评分（默认 30）
+  --dedup             导出后运行 MemoMind TF-IDF 语义去重扫描
+  --consolidate       导出后运行知识整理建议（主题聚类/合并建议/陈旧检测）
 ```
 
 ## 6. 通用选项
