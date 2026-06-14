@@ -4,22 +4,34 @@ from pathlib import Path
 from typing import Optional
 
 
+_PDF_TEXT_DENSITY_THRESHOLD = 50  # 平均每页字符数阈值
+
+
 def _pdf_has_text_layer(pdf_path: Path) -> bool:
-    """检测 PDF 是否有可提取的文字层（任意一页有文字即返回 True）"""
+    """检测 PDF 是否有可提取的文字层（按平均每页字符密度判断）
+
+    旧策略"任意一页 >10 字符即认为有文字"会把扫描件中的页眉/水印误判为文字层。
+    新策略：总文字字符数 / 页数 ≥ 50 才认为是真正的文字 PDF。
+
+    阈值依据：典型水印（"Page 1 of 3"、"Confidential"）通常 <30 字符/页；
+    正常段落文字通常 >100 字符/页。50 留出足够缓冲。
+
+    导入或读取失败时返回 True（不确定时倾向跳过 OCR，避免无效 API 调用）。
+    """
     try:
         import fitz
     except ImportError:
-        return True  # 无法检测，假定有文字
+        return True
 
     try:
         doc = fitz.open(str(pdf_path))
-        for page in doc:
-            text = page.get_text().strip()
-            if len(text) > 10:
-                doc.close()
-                return True
+        page_count = len(doc)
+        if page_count == 0:
+            doc.close()
+            return False
+        total_chars = sum(len(page.get_text().strip()) for page in doc)
         doc.close()
-        return False
+        return (total_chars / page_count) >= _PDF_TEXT_DENSITY_THRESHOLD
     except Exception:
         return True
 

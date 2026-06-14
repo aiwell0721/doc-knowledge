@@ -11,7 +11,13 @@ class TestPDFPageRendering:
         """有文字层的 PDF 正常转换，不触发页面渲染"""
         from doc_knowledge.converters import convert_file
 
-        pdf_path = _create_text_pdf(tmp_path, "Hello World - 测试文档")
+        # 用足够长的文本，避免被密度阈值误判为扫描件
+        pdf_path = _create_text_pdf(
+            tmp_path,
+            "Hello World - this is a text-based PDF with enough content "
+            "to pass the density check. The test verifies that real text "
+            "documents are not mistakenly treated as scanned images."
+        )
         markdown, images, image_map = convert_file(pdf_path, output_dir=tmp_path)
         assert "Hello World" in markdown
         assert images == 0  # 有文字层，不需要 OCR
@@ -42,11 +48,45 @@ class TestPDFPageRendering:
         """检测 PDF 是否有文字层"""
         from doc_knowledge.converters import _pdf_has_text_layer
 
-        text_pdf = _create_text_pdf(tmp_path, "Sample content")
+        # 用足够多字符的真实文本，符合"平均每页 50+ 字符"密度阈值
+        text_pdf = _create_text_pdf(
+            tmp_path,
+            "This is a sample document with enough content for density check. "
+            "It contains multiple sentences to ensure the text layer detector "
+            "correctly identifies this as a text-based PDF, not a scanned image."
+        )
         image_pdf = _create_image_pdf(tmp_path)
 
         assert _pdf_has_text_layer(text_pdf)
         assert not _pdf_has_text_layer(image_pdf)
+
+    def test_scanned_pdf_with_watermark_not_detected_as_text(self, tmp_path):
+        """扫描件嵌入了页眉/页脚水印（每页 >10 但 <50 字符）不应被误判为文字 PDF"""
+        from doc_knowledge.converters import _pdf_has_text_layer
+        import fitz
+
+        # 构造："扫描件 + 页眉水印"：3 页，每页嵌入约 25-30 字符的水印
+        # 这正是旧实现的盲区：单页 >10 字符即判定有文字层
+        pdf_path = tmp_path / "scanned_with_watermark.pdf"
+        doc = fitz.open()
+        for i in range(3):
+            page = doc.new_page()
+            page.insert_text((50, 30), f"Confidential - Page {i+1} of 3", fontsize=8)
+        doc.save(str(pdf_path))
+        doc.close()
+
+        # 总字符数 ~75，3 页 → 平均 25/页 < 50 阈值
+        assert not _pdf_has_text_layer(pdf_path), "水印级文字不应被认为是真正的文字层"
+
+    def test_single_page_text_pdf_detected(self, tmp_path):
+        """单页正常文字 PDF 应被识别为有文字层"""
+        from doc_knowledge.converters import _pdf_has_text_layer
+
+        pdf_path = _create_text_pdf(
+            tmp_path,
+            "A standard one-page document. " * 5  # ~150 字符
+        )
+        assert _pdf_has_text_layer(pdf_path)
 
 
 class TestOCRIntegration:
