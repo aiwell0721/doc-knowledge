@@ -2,7 +2,7 @@
 Doc-Knowledge 工具函数
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -33,7 +33,7 @@ def make_frontmatter(
         frontmatter + 提示文本
     """
     if not converted_at:
-        converted_at = datetime.now().isoformat(timespec="seconds")
+        converted_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     
     source_url = f"file:///{source_path.as_posix()}"
     
