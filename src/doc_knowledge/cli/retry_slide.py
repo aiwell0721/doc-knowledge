@@ -37,10 +37,14 @@ def retry_slide(markdown_path: Path, ocr_api_url: str, ocr_api_key: str,
     if not source_path.exists():
         raise click.ClickException(f"源文件不存在: {source_path}")
 
-    # 2) 解析失败块 → 失败页清单（⚠️ 降级提示 或 [错误堆栈] 旧格式）
+    # 2) 解析失败块 → 失败页清单
+    #    新形态：独立行 ⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留
+    #    旧形态：> 📊 **整页理解**: ⚠️... 或 > 📊 **整页理解**: [错误堆栈]
     failed_pages = sorted({
         int(n) for n in re.findall(
-            r"<!-- Slide number: (\d+) -->\s*\n+\s*> 📊 \*\*整页理解\*\*: (?:⚠️|\[)",
+            r"<!-- Slide number: (\d+) -->\s*\n+\s*"
+            r"(?:⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留"
+            r"|> 📊 \*\*整页理解\*\*: (?:⚠️|\[[^\r\n]*\]))",
             md_text,
         )
     })

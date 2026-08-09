@@ -119,6 +119,22 @@ def convert_file(
                         images_extracted += len(pages)
                         image_paths.extend(pages)
 
+    from doc_knowledge.ocr.slide import SlideFusionService
+
+    # slide 模式（方案C）：整页渲染 + 云端 VLM 三位一体意图识别
+    # 与内嵌图片逐张 OCR 不同，slide 把整页幻灯片送 VLM，结果按页注入。
+    # 识别对象是整页截图而非内嵌图，故不提取/不保留内嵌图（2026-08-09 起）：
+    # 删除 MarkItDown 的内嵌图引用，返回 images=0、image_map=[]。
+    slide_mode = (
+        isinstance(ocr_service, SlideFusionService)
+        and filepath.suffix.lower() == '.pptx'
+    )
+    if slide_mode:
+        markdown = _strip_image_refs(markdown)
+        slide_results = ocr_service.process_pptx(filepath, output_dir, verbose=verbose)
+        markdown = _inject_slide_blockquotes(markdown, slide_results)
+        return markdown, 0, []
+
     # 提取图片（PPTX/DOCX）
     if output_dir is not None:
         ext = filepath.suffix.lower()
@@ -131,24 +147,18 @@ def convert_file(
     # 映射值使用相对于 .md 文件所在目录的路径（B 内自洽）
     image_map = _build_image_map(markdown, image_paths, filepath.name)
 
-    # slide 模式（方案C）：整页渲染 + 云端 VLM 三位一体意图识别
-    # 与内嵌图片逐张 OCR 不同，slide 把整页幻灯片送 VLM，结果按页注入。
-    # 图片仍正常提取（保留引用显示能力），但跳过逐张 OCR 分支。
-    from doc_knowledge.ocr.slide import SlideFusionService
-
-    if isinstance(ocr_service, SlideFusionService) and filepath.suffix.lower() == '.pptx':
-        slide_results = ocr_service.process_pptx(filepath, output_dir, verbose=verbose)
-        markdown = _inject_slide_blockquotes(markdown, slide_results)
-        return markdown, images_extracted, image_map
+    # 通用：删除无意义图片（md 引用 + image_map 条目 + 物理文件），所有模式统一
+    markdown, image_map, image_paths = _drop_meaningless_images(
+        markdown, image_map, image_paths,
+    )
 
     # 嵌入图片识别（PPTX/DOCX）：保留原图引用，追加 blockquote 描述
     # 注意：扫描型 PDF 整页识别在前面已处理，此处仅处理嵌入图片
     if ocr_service and image_paths and filepath.suffix.lower() in {'.pptx', '.docx'}:
-        meaningful_paths = _filter_meaningless_images(image_paths)
         if verbose:
-            print(f"  开始识别 {len(meaningful_paths)}/{len(image_paths)} 张图片（OCR）...")
+            print(f"  开始识别 {len(image_paths)} 张图片（OCR）...")
 
-        batch_results = ocr_service.recognize_batch(meaningful_paths, verbose=verbose)
+        batch_results = ocr_service.recognize_batch(image_paths, verbose=verbose)
 
         # 收集有效识别结果 {提取图片名: 描述}，按位置注入到对应引用下方
         recognized = {
@@ -275,6 +285,68 @@ def _build_image_map(markdown: str, image_paths: list[Path], source_name: str) -
     return image_map
 
 
+def _drop_meaningless_images(
+    markdown: str,
+    image_map: list[tuple[str, str]],
+    image_paths: list[Path],
+) -> tuple[str, list[tuple[str, str]], list[Path]]:
+    """删除无意义图片：md 引用 + image_map 条目 + 物理文件
+
+    复用 ImageFilter.should_recognize 判定（纯色 / 过小 / 低分辨率）。
+    位置匹配：image_paths[i] ↔ image_map[i] ↔ md 第 i 个本地引用。
+    对命中图片：删除 md 引用、从 image_map 移除、unlink 物理文件。
+    """
+    try:
+        from doc_knowledge.vision import ImageFilter
+    except ImportError:
+        return markdown, image_map, image_paths
+
+    filter_ = ImageFilter()
+    drop_indices = {
+        i for i, p in enumerate(image_paths) if not filter_.should_recognize(p)[0]
+    }
+    if not drop_indices:
+        return markdown, image_map, image_paths
+
+    # 1) 删除 md 中命中的本地图片引用（按位置计数，外部链接不参与）
+    import re
+
+    ref_re = re.compile(r'!\[.*?\]\(([^)]+)\)')
+    local_index = 0
+
+    def _drop(match):
+        nonlocal local_index
+        ref = match.group(1)
+        if ref.startswith(('http://', 'https://')):
+            return match.group(0)  # 外部链接不参与位置匹配
+        idx = local_index
+        local_index += 1
+        return "" if idx in drop_indices else match.group(0)
+
+    markdown = ref_re.sub(_drop, markdown)
+
+    # 2) 重建 image_map，跳过被删图片
+    new_image_map = [e for i, e in enumerate(image_map) if i not in drop_indices]
+
+    # 3) 删除物理文件 + 重建 image_paths
+    for i in drop_indices:
+        image_paths[i].unlink(missing_ok=True)
+    new_image_paths = [p for i, p in enumerate(image_paths) if i not in drop_indices]
+
+    return markdown, new_image_map, new_image_paths
+
+
+def _strip_image_refs(markdown: str) -> str:
+    """删除 Markdown 中所有图片引用（![](...)）
+
+    slide 模式识别对象是整页截图而非内嵌图，内嵌图引用是噪音，
+    整页理解块已含视觉信息，无需保留内嵌图占位。
+    """
+    import re
+
+    return re.sub(r'!\[.*?\]\([^)]+\)', '', markdown)
+
+
 def _filter_meaningless_images(image_paths: list[Path]) -> list[Path]:
     """过滤低价值图片（文件过小 / 分辨率过低 / 纯色）
 
@@ -333,7 +405,7 @@ def _inject_ocr_blockquotes(
 
 
 def _slide_desc(desc: str) -> str:
-    """整页理解 blockquote 内容：识别失败的错误占位符降级为可读提示
+    """识别失败的错误占位符降级为可读提示
 
     错误占位符形态（[图片识别失败: ...] / [图片解析失败: ...]）不直接写进
     markdown，避免暴露 HTTP 错误堆栈。
@@ -343,12 +415,89 @@ def _slide_desc(desc: str) -> str:
     return desc
 
 
+def _parse_slide_result(text: str) -> Optional[dict]:
+    """解析 VLM 输出的结构化 JSON；非法或缺少核心字段（body）返回 None
+
+    VLM 文本形态：
+    - 合法新 schema（含 body）→ dict（title/overview/structure/body）
+    - 旧 schema JSON（缺 body）→ None（降级，保留原文）
+    - 非 JSON / 失败占位符 → None
+    """
+    import json
+
+    if not text or not text.strip() or text.startswith("["):
+        return None
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if not data.get("body"):  # 核心字段：结构化的正文
+        return None
+    return data
+
+
+def _render_slide_page(page_text: str, result: dict) -> str:
+    """渲染单页结构化输出：📊 标题（结构）+ 概述 + body + markitdown 原文折叠
+
+    result: _parse_slide_result 解析后的 dict（title/overview/structure/body）
+    page_text: MarkItDown 该页原始文本（<details> 折叠作兜底参考，可靠性 > 体积）
+    """
+    import json
+
+    def _fmt(v):
+        """字段非 str（VLM 嵌套 dict/list）时转为可读 Markdown，避免裸 JSON
+
+        - dict：键 → `###` 小标题，值（str 或 list）→ 项目符号列表
+        - list：→ 项目符号列表
+        - 其他标量 → JSON 序列化兜底
+        """
+        if isinstance(v, str):
+            return v
+        if isinstance(v, dict):
+            blocks = []
+            for k, val in v.items():
+                items = val if isinstance(val, list) else [val]
+                blocks.append(
+                    f"### {k}\n" + "\n".join(f"- {_fmt(x)}" for x in items)
+                )
+            return "\n\n".join(blocks)
+        if isinstance(v, list):
+            return "\n".join(f"- {_fmt(x)}" for x in v)
+        return json.dumps(v, ensure_ascii=False) if v is not None else ""
+
+    title = _fmt(result.get("title")).strip()
+    structure = _fmt(result.get("structure")).strip()
+    overview = _fmt(result.get("overview")).strip()
+    body = _fmt(result.get("body")).strip()
+
+    lines = []
+    if title:
+        head = f"📊 **{title}**"
+        if structure:
+            head += f"（{structure}）"
+        lines.append(head)
+    if overview:
+        lines.append(f"**概述**：{overview}")
+    if body:
+        lines.append(body)
+    page_text = page_text.strip()
+    if page_text:
+        lines.append(
+            f"<details><summary>markitdown 原文（兜底参考）</summary>\n{page_text}\n</details>"
+        )
+    return "\n\n".join(lines)
+
+
 def _inject_slide_blockquotes(markdown: str, slide_results: dict[int, str]) -> str:
-    """按 <!-- Slide number: N --> 边界，把每页整页理解作为 blockquote 注入页首
+    """按 <!-- Slide number: N --> 边界，每页注入结构化输出
 
-    slide_results: {页码: VLM 结构化文本}（页码与 MarkItDown 输出的 Slide number 对应）
-
-    用 re.sub 单次扫描全部页标记，插入的文本不会被重扫；
+    slide_results: {页码: VLM 文本}（页码与 MarkItDown 输出的 Slide number 对应）。
+    VLM 文本分派：
+    - 合法结构化 JSON → _render_slide_page 渲染（标题（结构）+ 概述 + body + 原文折叠）
+    - 非 JSON 文本 → 降级 `> 📊 **整页理解**: {文本}`（保留原文，兼容旧产物）
+    - 失败占位符（[图片识别失败...]）→ 降级提示
     无结果的页（页码缺失或识别失败）保持原样。
     """
     import re
@@ -356,24 +505,35 @@ def _inject_slide_blockquotes(markdown: str, slide_results: dict[int, str]) -> s
     if not slide_results:
         return markdown
 
-    slide_re = re.compile(r'<!-- Slide number: (\d+) -->')
-
-    def _inject(match):
-        num = int(match.group(1))
+    # 按页标记切分（lookahead 保留标记本身），逐页渲染后重组
+    parts = re.split(r'(?=<!-- Slide number: \d+ -->)', markdown)
+    out = []
+    for part in parts:
+        m = re.match(r'<!-- Slide number: (\d+) -->', part)
+        if not m:
+            out.append(part)
+            continue
+        num = int(m.group(1))
         desc = slide_results.get(num)
-        if desc:
-            return f"{match.group(0)}\n\n> 📊 **整页理解**: {_slide_desc(desc)}"
-        return match.group(0)
-
-    return slide_re.sub(_inject, markdown)
+        if not desc:
+            out.append(part)
+            continue
+        result = _parse_slide_result(desc)
+        if result is not None:
+            page_text = part[m.end():]
+            out.append(f"<!-- Slide number: {num} -->\n\n{_render_slide_page(page_text, result)}")
+        else:
+            out.append(f"{part.rstrip()}\n\n> 📊 **整页理解**: {_slide_desc(desc)}")
+    # markdown 以 <!-- Slide number: 1 --> 开头时 parts[0] 为空串，join 会拼出前导 \n
+    return "\n".join(out).lstrip("\n")
 
 
 def _update_slide_blockquotes(markdown: str, slide_results: dict[int, str]) -> str:
-    """补跑后更新已有 markdown 的指定页整页理解块（retry-slide 用）
+    """补跑后更新已有 markdown 的指定页结构化输出（retry-slide 用）
 
-    - 目标页已有失败块（单行 ⚠️ 降级提示，或旧版 [图片识别失败...] 错误堆栈）→ 删除后重新注入
-    - 目标页无块（旧版空串丢失）→ 直接注入
-    - 非目标页 → 保持原样（不重复注入、不覆盖已有成功块）
+    - 目标页（失败页）：剥离旧失败块（新形态独立 ⚠️ 行 / 旧形态 blockquote），
+      用新结果重新渲染——成功→结构化输出（含原文折叠），仍失败→降级提示
+    - 非目标页：保持原样（不重复注入、不覆盖已有成功块）
     """
     import re
 
@@ -381,31 +541,32 @@ def _update_slide_blockquotes(markdown: str, slide_results: dict[int, str]) -> s
         return markdown
 
     target = set(slide_results)
-
-    # 1) 删除目标页已有的失败块：⚠️ 降级提示 或 [错误堆栈]（旧格式，2026-08-09 前生成）
-    def _drop(match):
-        num = int(match.group(2))
-        if num in target:
-            return match.group(1)  # 保留 marker + 空行，删除块行
-        return match.group(0)
-
-    markdown = re.sub(
-        r'(<!-- Slide number: (\d+) -->\r?\n\r?\n)'
-        r'(> 📊 \*\*整页理解\*\*: (?:⚠️|\[)[^\r\n]*\r?\n)',
-        _drop, markdown,
+    fail_re = re.compile(
+        r"⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留"
+        r"|> 📊 \*\*整页理解\*\*: (?:⚠️|\[[^\r\n]*\])"
     )
 
-    # 2) 仅对目标页注入新结果（仍失败则 _slide_desc 降级为提示）
-    def _inject(match):
-        num = int(match.group(1))
-        if num not in target:
-            return match.group(0)
+    parts = re.split(r'(?=<!-- Slide number: \d+ -->)', markdown)
+    out = []
+    for part in parts:
+        m = re.match(r'<!-- Slide number: (\d+) -->', part)
+        if not m or int(m.group(1)) not in target:
+            out.append(part)
+            continue
+        num = int(m.group(1))
+        page_text = fail_re.sub("", part[m.end():])
         desc = slide_results.get(num)
-        if not desc:
-            return match.group(0)
-        return f"{match.group(0)}\n\n> 📊 **整页理解**: {_slide_desc(desc)}"
-
-    return re.sub(r'<!-- Slide number: (\d+) -->', _inject, markdown)
+        result = _parse_slide_result(desc) if desc else None
+        if result is not None:
+            out.append(
+                f"<!-- Slide number: {num} -->\n\n{_render_slide_page(page_text, result)}"
+            )
+        else:
+            # _slide_desc 对 [ 开头占位符已返回带 ⚠️ 的提示，此处不再加前缀，避免双重 ⚠️
+            out.append(
+                f"<!-- Slide number: {num} -->\n\n{_slide_desc(desc)}\n\n{page_text.strip()}"
+            )
+    return "\n".join(out).lstrip("\n")
 
 
 def get_supported_extensions() -> list[str]:

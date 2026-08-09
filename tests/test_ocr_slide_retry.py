@@ -29,7 +29,10 @@ class _SlideAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         resp = json.dumps(
-            {"choices": [{"message": {"content": '{"page_summary": "测试页"}'}}]}
+            {"choices": [{"message": {"content": (
+                '{"title": "测试页", "overview": "主旨", '
+                '"structure": "总分结构", "body": "**总**：内容"}'
+            )}}]}
         )
         self.wfile.write(resp.encode())
 
@@ -84,7 +87,7 @@ class TestRetryPages:
         results = svc.retry_pages(pptx, tmp_path, page_numbers=[1, 3])
         assert set(results) == {1, 3}  # 仅识别指定页，不识别 page2
         for num, text in results.items():
-            assert "page_summary" in text
+            assert '"title"' in text
 
     def test_empty_page_list_returns_empty(self, tmp_path, monkeypatch):
         svc = SlideFusionService(api_url="http://x", api_key="k")
@@ -103,27 +106,33 @@ class TestRetryPages:
 class TestUpdateSlideBlockquotes:
     """_update_slide_blockquotes：补跑后更新已有 markdown"""
 
+    _SUCCESS = (
+        '{"title": "补跑页", "overview": "主旨", '
+        '"structure": "总分结构", "body": "**总**：补跑成功"}'
+    )
+
     def test_replace_fallback_block(self):
         md = (
             "<!-- Slide number: 1 -->\n\n"
-            "> 📊 **整页理解**: ⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留\n\n"
+            "⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留\n\n"
             "内容A\n\n"
             "<!-- Slide number: 2 -->\n\n"
             '> 📊 **整页理解**: {"page_summary": "成功"}\n\n'
             "内容B\n"
         )
-        out = _update_slide_blockquotes(md, {1: '{"page_summary": "补跑成功"}'})
+        out = _update_slide_blockquotes(md, {1: self._SUCCESS})
 
+        assert "📊 **补跑页**（总分结构）" in out   # 结构化输出（含标题+结构）
         assert "补跑成功" in out
         assert "识别失败" not in out              # 降级提示被替换
         assert '"page_summary": "成功"' in out   # 非目标页保持原样
-        assert out.count("整页理解") == 2         # 不重复注入
+        assert out.count("整页理解") == 1         # 仅非目标页旧 blockquote 保留
 
     def test_insert_missing_block(self):
-        """旧版空串丢失页（无 blockquote）→ 补跑后插入"""
+        """旧版空串丢失页（无失败块）→ 补跑后插入结构化输出"""
         md = "<!-- Slide number: 1 -->\n\n内容A\n"
-        out = _update_slide_blockquotes(md, {1: '{"page_summary": "补跑成功"}'})
-        assert "整页理解" in out
+        out = _update_slide_blockquotes(md, {1: self._SUCCESS})
+        assert "📊 **补跑页**（总分结构）" in out
         assert "补跑成功" in out
 
     def test_non_target_pages_untouched(self):
@@ -131,16 +140,21 @@ class TestUpdateSlideBlockquotes:
             "<!-- Slide number: 1 -->\n\n内容A\n\n"
             "<!-- Slide number: 2 -->\n\n内容B\n"
         )
-        out = _update_slide_blockquotes(md, {2: '{"page_summary": "第二页补跑"}'})
+        out = _update_slide_blockquotes(
+            md, {2: '{"title": "第二页", "overview": "概述", '
+                   '"structure": "并列结构", "body": "第二页补跑"}'}
+        )
         # 第 1 页无结果，不注入
-        assert out.count("整页理解") == 1
-        assert "第二页补跑" in out.split("<!-- Slide number: 2 -->")[1]
+        assert "📊 **补跑页**" not in out
+        second = out.split("<!-- Slide number: 2 -->")[1]
+        assert "📊 **第二页**（并列结构）" in second
+        assert "第二页补跑" in second
 
     def test_still_failed_stays_fallback(self):
         """补跑仍失败的页，保留/更新降级提示（不注入错误堆栈）"""
         md = (
             "<!-- Slide number: 1 -->\n\n"
-            "> 📊 **整页理解**: ⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留\n\n"
+            "⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留\n\n"
             "内容A\n"
         )
         out = _update_slide_blockquotes(
@@ -148,6 +162,7 @@ class TestUpdateSlideBlockquotes:
         )
         assert "识别失败" in out                 # 仍是降级提示
         assert "HTTP Error 429" not in out       # 不暴露错误堆栈
+        assert out.count("⚠️") == 1               # 不双重前缀
 
     def test_replace_legacy_error_block(self):
         """旧格式 md（错误堆栈 [图片识别失败...]）也能被替换，不残留重复块
@@ -160,11 +175,12 @@ class TestUpdateSlideBlockquotes:
             "> 📊 **整页理解**: [图片识别失败: HTTP Error 429: Too Many Requests]\n\n"
             "内容A\n"
         )
-        out = _update_slide_blockquotes(md, {1: '{"page_summary": "补跑成功"}'})
+        out = _update_slide_blockquotes(md, {1: self._SUCCESS})
 
+        assert "📊 **补跑页**（总分结构）" in out
         assert "补跑成功" in out
         assert "HTTP Error 429" not in out       # 旧错误堆栈块被删除
-        assert out.count("整页理解") == 1         # 不叠加新旧块
+        assert "整页理解" not in out              # 旧 blockquote 被替换，无残留
 
 
 class TestRetrySlideCLI:
@@ -184,7 +200,7 @@ class TestRetrySlideCLI:
             f'source: "file:///{src.as_posix()}"\n'
             "---\n"
             "<!-- Slide number: 1 -->\n\n"
-            "> 📊 **整页理解**: ⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留\n\n"
+            "⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留\n\n"
             "内容A\n",
             encoding="utf-8",
         )
@@ -192,7 +208,8 @@ class TestRetrySlideCLI:
         monkeypatch.setattr(
             SlideFusionService, "retry_pages",
             lambda self, pptx, out, page_numbers, verbose=False: {
-                1: '{"page_summary": "补跑成功"}'
+                1: ('{"title": "补跑页", "overview": "主旨", '
+                    '"structure": "总分结构", "body": "**总**：补跑成功"}')
             },
         )
 
@@ -202,8 +219,10 @@ class TestRetrySlideCLI:
             [str(md_path), "--ocr-api-url", "http://x", "--ocr-api-key", "k"],
         )
         assert result.exit_code == 0, result.output
+        assert "1 个失败页" in result.output       # 新形态独立 ⚠️ 行被识别
 
         updated = md_path.read_text(encoding="utf-8")
+        assert "📊 **补跑页**（总分结构）" in updated
         assert "补跑成功" in updated
         assert "识别失败" not in updated
 
@@ -234,7 +253,8 @@ class TestRetrySlideCLI:
         monkeypatch.setattr(
             SlideFusionService, "retry_pages",
             lambda self, pptx, out, page_numbers, verbose=False: {
-                1: '{"page_summary": "补跑成功"}'
+                1: ('{"title": "补跑页", "overview": "主旨", '
+                    '"structure": "总分结构", "body": "**总**：补跑成功"}')
             },
         )
 
@@ -247,6 +267,7 @@ class TestRetrySlideCLI:
         assert "1 个失败页" in result.output       # 旧格式失败页被识别
 
         updated = md_path.read_text(encoding="utf-8")
+        assert "📊 **补跑页**（总分结构）" in updated
         assert "补跑成功" in updated
         assert "HTTP Error 429" not in updated     # 旧错误堆栈被替换
 
@@ -263,8 +284,7 @@ class TestRetrySlideCLI:
             f'source: "file:///{src.as_posix()}"\n'
             "---\n"
             "<!-- Slide number: 1 -->\n\n"
-            '> 📊 **整页理解**: {"page_summary": "成功"}\n\n'
-            "内容A\n",
+            '📊 **成功页**（总分结构）\n\n**概述**：主旨\n\n**总**：内容\n\n内容A\n',
             encoding="utf-8",
         )
 

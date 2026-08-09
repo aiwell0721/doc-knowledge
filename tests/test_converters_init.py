@@ -316,6 +316,50 @@ class TestImageMap:
         assert tiny not in result
         assert solid not in result
 
+    def test_drop_meaningless_images(self, tmp_path):
+        """删除无意义图片：md 引用 + image_map 条目 + 物理文件"""
+        from doc_knowledge.converters import _drop_meaningless_images
+        from PIL import Image, ImageDraw
+
+        tiny = tmp_path / "tiny.png"
+        tiny.write_bytes(b"x" * 100)  # < 500B
+
+        solid = tmp_path / "solid.bmp"
+        Image.new("RGB", (100, 100), color=(255, 0, 0)).save(solid, format="BMP")
+
+        meaningful = tmp_path / "meaningful.bmp"
+        img = Image.new("RGB", (100, 100), color=(255, 255, 255))
+        ImageDraw.Draw(img).rectangle([0, 0, 50, 50], fill=(0, 0, 0))
+        img.save(meaningful, format="BMP")
+
+        markdown = (
+            "![tiny](.jpg)\n"
+            "![solid](.jpg)\n"
+            "![meaningful](.jpg)\n"
+        )
+        image_map = [
+            (".jpg", "pres.pptx_images/slide1_img1.png"),
+            (".jpg", "pres.pptx_images/slide1_img2.png"),
+            (".jpg", "pres.pptx_images/slide2_img1.png"),
+        ]
+        image_paths = [tiny, solid, meaningful]
+
+        new_markdown, new_map, new_paths = _drop_meaningless_images(
+            markdown, image_map, image_paths
+        )
+
+        # tiny/solid：md 引用删除、image_map 条目消失、物理文件删除
+        assert "![tiny]" not in new_markdown
+        assert "![solid]" not in new_markdown
+        assert "![meaningful]" in new_markdown
+        assert len(new_map) == 1
+        assert new_map[0] == (".jpg", "pres.pptx_images/slide2_img1.png")
+        assert not tiny.exists()
+        assert not solid.exists()
+        # meaningful：引用、条目、文件均保留
+        assert meaningful.exists()
+        assert new_paths == [meaningful]
+
     def test_ocr_blockquote_injection_positional(self):
         """blockquote 应注入到各自图片引用下方，而非全部堆叠在第一张图片处
 

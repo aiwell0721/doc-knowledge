@@ -42,5 +42,41 @@ def test_make_frontmatter_with_extra():
         source_path=Path("/docs/test.pdf"),
         extra={"custom": "value"},
     )
-    
+
     assert 'custom: "value"' in result
+
+
+def test_run_convert_images_extracted_inside_frontmatter(tmp_path):
+    """images_extracted 应在 YAML frontmatter 内
+
+    回归：_run_convert 用字符串拼接把 images_extracted 追加在第二个 --- 之后，
+    导致该字段落在 frontmatter 外、成为正文首行，YAML 解析器无法识别。
+    """
+    from click.testing import CliRunner
+    from doc_knowledge.cli import main
+
+    source = tmp_path / "src"
+    source.mkdir()
+    from docx import Document
+    from PIL import Image, ImageDraw
+
+    doc = Document()
+    doc.add_heading("带图文档", level=1)
+    img = Image.new("RGB", (200, 150), (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    d.rectangle([20, 20, 120, 100], fill=(200, 30, 30))
+    d.rectangle([40, 40, 90, 70], fill=(30, 60, 200))
+    img_path = tmp_path / "chart.png"
+    img.save(img_path)
+    doc.add_picture(str(img_path))
+    doc.save(str(source / "img.docx"))
+
+    out = tmp_path / "out"
+    result = CliRunner().invoke(main, ["convert", str(source), "-o", str(out)])
+    assert result.exit_code == 0
+
+    md = (out / "img.docx.md").read_text(encoding="utf-8")
+    first = md.index("---")
+    second = md.index("---", first + 3)
+    frontmatter = md[:second]
+    assert "images_extracted" in frontmatter

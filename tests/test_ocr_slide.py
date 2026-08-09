@@ -36,13 +36,17 @@ class _SlideAPIHandler(BaseHTTPRequestHandler):
         assert img_item["image_url"]["url"].startswith("data:image/")
         text_item = user[1]
         assert text_item["type"] == "text"
-        assert "page_summary" in text_item["text"] or "幻灯片" in text_item["text"]
+        # 新 schema：prompt 必须包含结构化字段关键词
+        assert any(k in text_item["text"] for k in ("title", "overview", "structure"))
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         resp = json.dumps(
-            {"choices": [{"message": {"content": '{"page_summary": "测试页主旨"}'}}]}
+            {"choices": [{"message": {"content": (
+                '{"title": "测试页", "overview": "主旨", '
+                '"structure": "总分结构", "body": "**总**：内容"'
+            )}}]}
         )
         self.wfile.write(resp.encode())
 
@@ -95,7 +99,8 @@ class TestSlideFusionServiceInit:
         svc = SlideFusionService(api_url="http://x", api_key="k")
         assert svc.model == "glm-4.6v-flash"
         assert svc.dpi == 150
-        assert "page_summary" in svc.prompt
+        assert "structure" in svc.prompt  # 新 schema：内容逻辑结构字段
+        assert "禁止输出嵌套 JSON 对象" in svc.prompt  # body 必须为 Markdown 字符串
 
     def test_custom_params(self):
         svc = SlideFusionService(
@@ -192,7 +197,7 @@ class TestRecognizeSlides:
         assert len(results) == 2
         assert 1 in results and 2 in results
         for num, text in results.items():
-            assert "page_summary" in text
+            assert '"title"' in text  # 新 schema 字段
 
     def test_429_retry_with_backoff(self, tmp_path, monkeypatch):
         """429 限流后按退避重试，最终成功
@@ -443,3 +448,199 @@ class TestConvertFileIntegration:
 
         svc = CloudOCRService(api_url="http://x", api_key="k")
         assert not isinstance(svc, SlideFusionService)
+
+    def test_slide_mode_skips_embedded_images(self, tmp_path, monkeypatch):
+        """slide 模式不产内嵌图：images=0、image_map=[]、md 无图片引用、无 _images/ 残留
+
+        回归：slide 模式识别对象是整页截图而非内嵌图，内嵌图是噪音残留。
+        """
+        from PIL import Image, ImageDraw
+        from pptx import Presentation
+
+        from doc_knowledge.converters import convert_file
+
+        # 真实 PPTX：含标题 + 1 张内嵌图片（MarkItDown 会输出图片引用）
+        pptx = tmp_path / "pres.pptx"
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[0])
+        slide.shapes.title.text = "市场规模"
+        img_path = tmp_path / "tmp.png"
+        # 多色复杂图：确保不被 ImageFilter 判为无意义（体积>500B、分辨率够、非纯色），
+        # 使 MarkItDown 的图片引用在正常管道中存活，才能验证 slide 分支主动删除。
+        img = Image.new("RGB", (400, 300), (255, 255, 255))
+        d = ImageDraw.Draw(img)
+        d.rectangle([10, 10, 120, 90], fill=(200, 30, 30))
+        d.rectangle([140, 40, 260, 140], fill=(30, 60, 200))
+        d.rectangle([60, 160, 200, 260], fill=(30, 160, 60))
+        d.rectangle([220, 180, 360, 280], fill=(0, 0, 0))
+        img.save(img_path, format="PNG")
+        slide.shapes.add_picture(str(img_path), 0, 0)
+        prs.save(str(pptx))
+
+        out = tmp_path / "out"
+        out.mkdir()
+
+        svc = SlideFusionService(api_url="http://x", api_key="k")
+        monkeypatch.setattr(
+            svc, "process_pptx",
+            lambda pptx, out, verbose=False: {1: "整页：本页讲市场规模"},
+        )
+
+        md, images, image_map = convert_file(pptx, output_dir=out, ocr_service=svc)
+
+        assert "整页理解" in md
+        assert "![" not in md                    # 内嵌图引用被删除
+        assert images == 0                        # 不提取内嵌图
+        assert image_map == []                    # 不建图片映射
+        assert not (out / "pres.pptx_images").exists()
+
+
+class TestSlideStructuredOutput:
+    """结构化输出：_parse_slide_result / _render_slide_page / _inject_slide_blockquotes"""
+
+    def test_parse_slide_result_valid(self):
+        """合法 JSON（含 body）→ dict"""
+        from doc_knowledge.converters import _parse_slide_result
+
+        text = (
+            '{"title": "市场规模", "overview": "2026超700亿", '
+            '"structure": "总分结构", "body": "**总**：x\\n- a\\n- b"}'
+        )
+        result = _parse_slide_result(text)
+        assert result is not None
+        assert result["title"] == "市场规模"
+        assert result["overview"] == "2026超700亿"
+        assert result["structure"] == "总分结构"
+        assert result["body"] == "**总**：x\n- a\n- b"
+
+    def test_parse_slide_result_invalid(self):
+        """非 JSON / 旧 schema（缺 body） / 错误占位符 → None"""
+        from doc_knowledge.converters import _parse_slide_result
+
+        assert _parse_slide_result("整页：普通文本") is None          # 非 JSON
+        assert _parse_slide_result("not json") is None
+        assert _parse_slide_result('{"page_summary": "x"}') is None   # 旧 schema 缺 body
+        assert _parse_slide_result("[图片识别失败: HTTP 429]") is None  # 错误占位符
+
+    def test_render_slide_page_structured(self):
+        """总分结构：标题（结构）+ 概述 + body + 原文折叠"""
+        from doc_knowledge.converters import _render_slide_page
+
+        page_text = "市场规模预测\n2026年市场超700亿元"
+        result = {
+            "title": "市场规模预测",
+            "overview": "2026年 AI 市场超700亿元",
+            "structure": "总分结构",
+            "body": "**核心结论**：市场持续增长\n\n| 年份 | 规模 |\n|------|------|\n| 2024 | 280 |",
+        }
+        out = _render_slide_page(page_text, result)
+
+        assert "📊 **市场规模预测**（总分结构）" in out
+        assert "**概述**：2026年 AI 市场超700亿元" in out
+        assert "| 年份 | 规模 |" in out                    # body 表格保留
+        assert "markitdown 原文（兜底参考）" in out          # 原文折叠
+        assert "2026年市场超700亿元" in out                  # 原文内容保留
+
+    def test_inject_slide_blockquotes_structured_multi_page(self):
+        """多页结构化注入：不串页，原文各归各页"""
+        from doc_knowledge.converters import _inject_slide_blockquotes
+
+        md = (
+            "<!-- Slide number: 1 -->\n\n第一页原文A\n\n"
+            "<!-- Slide number: 2 -->\n\n第二页原文B\n"
+        )
+        results = {
+            1: '{"title": "页一", "overview": "o1", "structure": "并列", "body": "b1"}',
+            2: '{"title": "页二", "overview": "o2", "structure": "递进", "body": "b2"}',
+        }
+        out = _inject_slide_blockquotes(md, results)
+
+        assert "📊 **页一**（并列）" in out
+        assert "📊 **页二**（递进）" in out
+        assert "第一页原文A" in out
+        assert "第二页原文B" in out
+        assert out.count("<details>") == 2                   # 每页一个原文折叠
+        # 页1 折叠含 A 不含 B（原文不串页）
+        page1_detail = out[out.index("页一"): out.index("页二")]
+        assert "第一页原文A" in page1_detail
+
+    def test_inject_slide_blockquotes_json_fallback(self):
+        """非 JSON 文本 → 降级旧 blockquote（保留文本）"""
+        from doc_knowledge.converters import _inject_slide_blockquotes
+
+        md = "<!-- Slide number: 1 -->\n\n原文\n"
+        out = _inject_slide_blockquotes(md, {1: "整页：普通文本"})
+
+        assert "> 📊 **整页理解**: 整页：普通文本" in out
+        assert "原文" in out
+
+    def test_inject_slide_blockquotes_failure_fallback(self):
+        """失败占位符 → 降级提示，不暴露错误堆栈"""
+        from doc_knowledge.converters import _inject_slide_blockquotes
+
+        md = "<!-- Slide number: 1 -->\n\n原文\n"
+        out = _inject_slide_blockquotes(md, {1: "[图片识别失败: HTTP Error 429]"})
+
+        assert "识别失败" in out
+        assert "HTTP Error 429" not in out
+        assert "原文" in out
+
+    def test_render_slide_page_body_as_dict(self):
+        """VLM 把 body 输出为嵌套 dict → 渲染为 Markdown 分节+列表，避免裸 JSON
+
+        回归：真实 10 页验证对章节小结页**稳定复现**（两次均为 dict），
+        直接 .strip() 崩溃。dict 应转为 `### 键` + `- 值` 的 Markdown 形态。
+        """
+        from doc_knowledge.converters import _render_slide_page
+
+        page_text = "市场规模预测"
+        result = {
+            "title": "市场规模预测",
+            "overview": "2026超700亿",
+            "structure": "总分结构",
+            "body": {"核心结论": "市场持续增长", "支撑": ["用户增长", "政策支持"]},
+        }
+        out = _render_slide_page(page_text, result)
+
+        assert "📊 **市场规模预测**（总分结构）" in out
+        assert "**概述**：2026超700亿" in out
+        assert "### 核心结论" in out        # dict 键 → 小标题
+        assert "- 市场持续增长" in out      # dict 值（str）→ 列表项
+        assert "### 支撑" in out
+        assert "- 用户增长" in out          # dict 值（list）→ 列表
+        assert "- 政策支持" in out
+        assert '{"核心结论"' not in out     # 不出现裸 JSON
+
+    def test_render_slide_page_body_as_list(self):
+        """body 直接为 list → 渲染为项目符号列表"""
+        from doc_knowledge.converters import _render_slide_page
+
+        page_text = "要点"
+        result = {
+            "title": "要点",
+            "overview": "o",
+            "structure": "并列",
+            "body": ["第一点", "第二点", "第三点"],
+        }
+        out = _render_slide_page(page_text, result)
+
+        assert "- 第一点" in out
+        assert "- 第二点" in out
+        assert "- 第三点" in out
+        assert '["第一点"' not in out       # 不出现裸 JSON
+
+    def test_inject_no_leading_blank_line(self):
+        """markdown 以 <!-- Slide number: 1 --> 开头时，输出不以空行开头
+
+        回归：真实产物第一行异常空行——re.split 产生的 parts[0] 为空串，
+        '\n'.join 在开头拼出一个 '\n'。注入不应改变 markdown 头部格式。
+        """
+        from doc_knowledge.converters import _inject_slide_blockquotes
+
+        md = "<!-- Slide number: 1 -->\n\n第一页原文\n"
+        out = _inject_slide_blockquotes(
+            md, {1: '{"title": "页一", "overview": "o", "structure": "并列", "body": "b"}'}
+        )
+
+        assert not out.startswith("\n")
+        assert out.startswith("<!-- Slide number: 1 -->")

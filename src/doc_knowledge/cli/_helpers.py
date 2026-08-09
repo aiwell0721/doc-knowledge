@@ -128,9 +128,9 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
                 frontmatter = make_frontmatter(
                     title=source_file.stem, source_path=source_file.resolve(),
                     source_relative=str(rel), original_format=source_file.suffix.lstrip("."),
+                    # extra 参数在 YAML 关闭符 --- 之前生成，避免 images_extracted 拼接在 frontmatter 外
+                    extra={"images_extracted": images} if images > 0 else None,
                 )
-                if images > 0:
-                    frontmatter += f"images_extracted: {images}\n"
                 output_file = output_dir / rel.parent / f"{source_file.name}.md"
                 output_file.parent.mkdir(parents=True, exist_ok=True)
                 output_file.write_text(frontmatter + markdown, encoding="utf-8")

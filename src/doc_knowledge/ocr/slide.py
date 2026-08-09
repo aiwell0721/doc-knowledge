@@ -20,11 +20,17 @@ from doc_knowledge.vision import LLMVisionService
 
 DEFAULT_SLIDE_PROMPT = (
     "你正在分析一页 PPT 幻灯片。请输出结构化 JSON：\n"
-    "1. page_summary：本页主旨（1-2 句话）\n"
-    "2. charts：本页的图表列表（类型：柱状/折线/饼图/雷达/散点…；标题；X轴/Y轴含义；"
-    "关键数据点；趋势或结论）\n"
-    "3. tables：本页的表格（转为 Markdown 表格）\n"
-    "4. layout_notes：图文之间的空间关系（如\"左图右文，图解释了文字中的市场规模趋势\"）\n"
+    "1. title：本页标题\n"
+    "2. overview：全文概述（1-2 句话）\n"
+    "3. structure：本页内容逻辑结构，从以下 7 种中选一"
+    "（一页混合多种时标注主结构，如\"总分结构（局部递进）\"）：\n"
+    "   并列 / 递进 / 总分 / 分总 / 总分总 / 对比 / 矩阵象限\n"
+    "4. body：按识别结构组织的正文，转译规则——\n"
+    "   文字 → 文字；表格 → Markdown 表格；\n"
+    "   数据型图表（柱状/折线/饼图/散点，含数值）→ Markdown 表格；\n"
+    "   概念型图形（示意/流程图/装饰）→ 文字描述\n"
+    "   body 必须为 Markdown 文本字符串，禁止输出嵌套 JSON 对象；\n"
+    "   多栏/并列内容用 Markdown 标题 + 列表组织\n"
     "只输出 JSON，不要额外解释。"
 )
 
