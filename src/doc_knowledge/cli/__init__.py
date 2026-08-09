@@ -1,7 +1,7 @@
 """
 Doc-Knowledge CLI 入口
 
-5 个命令覆盖全链路：convert / extract / export / pipeline / webui
+6 个命令覆盖全链路：convert / extract / export / pipeline / retry-slide / webui
 
 通过 `from doc_knowledge.cli import main` 取主入口（兼容旧版单文件 cli.py）。
 """
@@ -13,6 +13,7 @@ from doc_knowledge.cli.convert import convert
 from doc_knowledge.cli.extract import extract
 from doc_knowledge.cli.export import export_cmd
 from doc_knowledge.cli.pipeline import pipeline
+from doc_knowledge.cli.retry_slide import retry_slide
 from doc_knowledge.cli.webui import webui
 
 
@@ -27,6 +28,7 @@ main.add_command(convert)
 main.add_command(extract)
 main.add_command(export_cmd)
 main.add_command(pipeline)
+main.add_command(retry_slide)
 main.add_command(webui)
 
 

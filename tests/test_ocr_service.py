@@ -163,3 +163,15 @@ class TestCreateOCRService:
         cfg.ocr.mode = "hybrid"
         with pytest.raises(NotImplementedError, match="混合 OCR"):
             create_ocr_service(cfg)
+
+    def test_slide_mode_creates_slide_service(self):
+        from doc_knowledge.ocr.slide import SlideFusionService
+
+        cfg = Config()
+        cfg.ocr.enabled = True
+        cfg.ocr.mode = "slide"
+        cfg.ocr.cloud.api_url = "http://x"
+        cfg.ocr.cloud.api_key = "k"
+        svc = create_ocr_service(cfg)
+        assert isinstance(svc, SlideFusionService)
+        assert svc.dpi == cfg.ocr.slide.dpi

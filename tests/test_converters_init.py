@@ -65,7 +65,8 @@ class TestConvertFile:
         md, images, image_map = convert_file(fp)
         assert "Hello TXT world" in md
         assert isinstance(images, int)
-        assert isinstance(image_map, dict)
+        assert isinstance(image_map, list)
+        assert image_map == []
 
     def test_csv_file(self, tmp_path):
         fp = tmp_path / "data.csv"
@@ -132,7 +133,7 @@ class TestConvertFileWithOutputDir:
         assert "Hello" in md
         # No images expected for txt
         assert images == 0
-        assert image_map == {}
+        assert image_map == []
 
     def test_with_ocr_service_none(self, tmp_path):
         """ocr_service=None 时不应崩溃"""
@@ -180,7 +181,7 @@ class TestDocxImageExtraction:
         md, images, image_map = convert_file(fp, output_dir=out)
         # Should extract at least one image
         assert isinstance(images, int)
-        assert isinstance(image_map, dict)
+        assert isinstance(image_map, list)
 
     def test_docx_no_images(self, tmp_path):
         """DOCX without images"""
@@ -194,7 +195,7 @@ class TestDocxImageExtraction:
         out.mkdir()
         md, images, image_map = convert_file(fp, output_dir=out)
         assert images == 0
-        assert image_map == {}
+        assert image_map == []
 
     def test_docx_image_extraction_numeric_order(self, tmp_path):
         """DOCX 含 image1..image11 时应按数字而非字典序排列。
@@ -248,3 +249,97 @@ class TestPptxImageExtraction:
         out.mkdir()
         md, images, image_map = convert_file(fp, output_dir=out)
         assert isinstance(md, str)
+
+
+class TestImageMap:
+    """_build_image_map 位置匹配 + 重复引用名处理"""
+
+    def test_image_map_preserves_duplicate_refs(self):
+        """重复引用名（中文 shape 退化的 `.jpg`）应各保留独立映射条目"""
+        from doc_knowledge.converters import _build_image_map
+
+        markdown = (
+            "![第一张](.jpg)\n"
+            "![第二张](.jpg)\n"
+            "![第三张](.jpg)\n"
+        )
+        paths = [
+            Path("pres.pptx_images/slide1_img1.png"),
+            Path("pres.pptx_images/slide1_img2.png"),
+            Path("pres.pptx_images/slide2_img1.png"),
+        ]
+        image_map = _build_image_map(markdown, paths, "pres.pptx")
+        assert isinstance(image_map, list)
+        assert len(image_map) == 3
+        refs = [ref for ref, _ in image_map]
+        assert refs == [".jpg", ".jpg", ".jpg"], "重复引用名必须被保留"
+        assert image_map[0][1] == "pres.pptx_images/slide1_img1.png"
+
+    def test_image_map_replace_positional(self):
+        """逐次替换第一个匹配项后，3 个重复 `.jpg` 引用分别指向不同路径"""
+        from doc_knowledge.converters import _build_image_map
+
+        markdown = "![a](.jpg)\n![b](.jpg)\n![c](.jpg)\n"
+        paths = [
+            Path("pres.pptx_images/slide1_img1.png"),
+            Path("pres.pptx_images/slide1_img2.png"),
+            Path("pres.pptx_images/slide2_img1.png"),
+        ]
+        image_map = _build_image_map(markdown, paths, "pres.pptx")
+
+        result = markdown
+        for old_name, new_path in image_map:
+            result = result.replace(f"]({old_name})", f"]({new_path})", 1)
+
+        assert "](pres.pptx_images/slide1_img1.png)" in result
+        assert "](pres.pptx_images/slide1_img2.png)" in result
+        assert "](pres.pptx_images/slide2_img1.png)" in result
+
+    def test_filter_meaningless_images(self, tmp_path):
+        """过滤文件过小 / 纯色的低价值图片"""
+        from doc_knowledge.converters import _filter_meaningless_images
+        from PIL import Image, ImageDraw
+
+        tiny = tmp_path / "tiny.png"
+        tiny.write_bytes(b"x" * 100)  # < 500B
+
+        solid = tmp_path / "solid.bmp"
+        Image.new("RGB", (100, 100), color=(255, 0, 0)).save(solid, format="BMP")
+
+        meaningful = tmp_path / "meaningful.bmp"
+        img = Image.new("RGB", (100, 100), color=(255, 255, 255))
+        ImageDraw.Draw(img).rectangle([0, 0, 50, 50], fill=(0, 0, 0))
+        img.save(meaningful, format="BMP")
+
+        result = _filter_meaningless_images([tiny, solid, meaningful])
+        assert meaningful in result
+        assert tiny not in result
+        assert solid not in result
+
+    def test_ocr_blockquote_injection_positional(self):
+        """blockquote 应注入到各自图片引用下方，而非全部堆叠在第一张图片处
+
+        回归：原实现用 markdown.replace("](.jpg)", "](.jpg)\\n\\n> 📷...", 1)，
+        替换文本自身含 .jpg 锚点，导致后续 replace 反复匹配同一位置，
+        33 张识别结果全部堆叠在第一张图片引用下。
+        """
+        from doc_knowledge.converters import _inject_ocr_blockquotes
+
+        markdown = "![一](.jpg)\n甲\n\n![二](.jpg)\n乙\n\n![三](.jpg)\n丙\n"
+        image_map = [
+            (".jpg", "pres.pptx_images/slide1_img1.png"),
+            (".jpg", "pres.pptx_images/slide1_img2.png"),
+            (".jpg", "pres.pptx_images/slide2_img1.png"),
+        ]
+        recognized = {"slide1_img1.png": "识别甲", "slide2_img1.png": "识别丙"}
+
+        result = _inject_ocr_blockquotes(markdown, image_map, recognized)
+
+        # 每张已识别图片的引用下方各自追加 blockquote，互不堆叠
+        assert result == (
+            "![一](.jpg)\n\n> 📷 **图片识别**: 识别甲\n甲\n\n"
+            "![二](.jpg)\n乙\n\n"
+            "![三](.jpg)\n\n> 📷 **图片识别**: 识别丙\n丙\n"
+        )
+        # .jpg 引用保留（路径替换仍由调用方统一负责）
+        assert result.count("](.jpg)") == 3

@@ -40,6 +40,13 @@ class TestConfigDefaults:
         assert hybrid.filter_min_size_kb == 10
         assert hybrid.filter_min_resolution == 100
 
+    def test_ocr_slide_defaults(self):
+        cfg = load_config(config_path=Path("/nonexistent/path/config.yaml"))
+        slide = cfg.ocr.slide
+        assert slide.dpi == 150
+        assert slide.prompt == ""
+        assert slide.libreoffice_path == ""
+
 
 class TestConfigFromFile:
     """从 YAML 文件加载配置"""
@@ -80,6 +87,22 @@ class TestConfigFromFile:
         assert cfg.ocr.cloud.api_url == "https://api.openai.com/v1"
         assert cfg.ocr.cloud.max_concurrency == 5
         assert cfg.ocr.mode == "cloud"  # 默认
+
+    def test_load_slide_config(self):
+        data = {
+            "ocr": {
+                "enabled": True,
+                "mode": "slide",
+                "slide": {"dpi": 200, "prompt": "自定义提示", "libreoffice_path": "C:/soffice.exe"},
+            }
+        }
+        cfg = _load_from_dict(data)
+        assert cfg.ocr.mode == "slide"
+        assert cfg.ocr.slide.dpi == 200
+        assert cfg.ocr.slide.prompt == "自定义提示"
+        assert cfg.ocr.slide.libreoffice_path == "C:/soffice.exe"
+        # slide 未覆盖的 cloud 字段仍可被复用
+        assert cfg.ocr.cloud.api_url == "https://api.openai.com/v1"
 
 
 class TestEnvVarSubstitution:

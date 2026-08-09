@@ -117,11 +117,13 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
                 else:
                     markdown = result
                     images = 0
-                    image_map = {}
+                    image_map = []
 
                 if image_map:
-                    for old_name, new_path in image_map.items():
-                        markdown = markdown.replace(f"]({old_name})", f"]({new_path})")
+                    # 逐次替换第一个匹配项：重复引用名（中文 shape 退化的 .jpg）
+                    # 时，保证第 i 个引用指向第 i 张提取图片，而非一次替换所有同名引用
+                    for old_name, new_path in image_map:
+                        markdown = markdown.replace(f"]({old_name})", f"]({new_path})", 1)
 
                 frontmatter = make_frontmatter(
                     title=source_file.stem, source_path=source_file.resolve(),

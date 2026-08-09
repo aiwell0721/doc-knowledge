@@ -37,12 +37,20 @@ class HybridOCRConfig:
 
 
 @dataclass
+class SlideOCRConfig:
+    dpi: int = 150  # 整页渲染分辨率
+    prompt: str = ""  # 覆盖默认 slide prompt；空串用内置默认
+    libreoffice_path: str = ""  # soffice 可执行文件路径；空串自动探测
+
+
+@dataclass
 class OCRConfig:
     enabled: bool = False
-    mode: str = "cloud"  # cloud | local | hybrid
+    mode: str = "cloud"  # cloud | local | hybrid | slide
     cloud: CloudOCRConfig = field(default_factory=CloudOCRConfig)
     local: LocalOCRConfig = field(default_factory=LocalOCRConfig)
     hybrid: HybridOCRConfig = field(default_factory=HybridOCRConfig)
+    slide: SlideOCRConfig = field(default_factory=SlideOCRConfig)
 
 
 @dataclass
@@ -85,7 +93,7 @@ def _build_config(raw: dict) -> Config:
     ocr_raw = raw.get("ocr", {})
 
     mode = ocr_raw.get("mode", "cloud")
-    if mode not in ("cloud", "local", "hybrid"):
+    if mode not in ("cloud", "local", "hybrid", "slide"):
         mode = "cloud"
 
     cloud_raw = ocr_raw.get("cloud", {})
@@ -118,6 +126,13 @@ def _build_config(raw: dict) -> Config:
         ).get("min_resolution", HybridOCRConfig.filter_min_resolution),
     )
 
+    slide_raw = ocr_raw.get("slide", {})
+    slide = SlideOCRConfig(
+        dpi=slide_raw.get("dpi", SlideOCRConfig.dpi),
+        prompt=slide_raw.get("prompt", SlideOCRConfig.prompt),
+        libreoffice_path=slide_raw.get("libreoffice_path", SlideOCRConfig.libreoffice_path),
+    )
+
     return Config(
         ocr=OCRConfig(
             enabled=ocr_raw.get("enabled", False),
@@ -125,5 +140,6 @@ def _build_config(raw: dict) -> Config:
             cloud=cloud,
             local=local,
             hybrid=hybrid,
+            slide=slide,
         )
     )

@@ -101,6 +101,7 @@ class LLMVisionService:
         api_key: str,
         model: str = "qwen-vl-plus",
         system_prompt: Optional[str] = None,
+        user_text: str = "请识别这张图片的内容。",
         timeout: int = 120,
         max_workers: int = 5,
         max_image_size: int = 2 * 1024 * 1024,  # 2MB
@@ -114,6 +115,7 @@ class LLMVisionService:
             "如果是示意图或流程图，请详细描述图中的信息。"
             "只输出识别到的文字，不要添加额外评论。"
         )
+        self.user_text = user_text
         self.timeout = timeout
         self.max_workers = max_workers
         self.max_image_size = max_image_size
@@ -164,7 +166,7 @@ class LLMVisionService:
                                 "url": f"data:{mime_type};base64,{base64_image}"
                             }
                         },
-                        {"type": "text", "text": "请识别这张图片的内容。"}
+                        {"type": "text", "text": self.user_text}
                     ]
                 }
             ],
@@ -189,14 +191,17 @@ class LLMVisionService:
         except (KeyError, IndexError) as e:
             return f"[图片解析失败: {e}]"
     
-    def recognize_images_batch(self, image_paths: list[Path], verbose: bool = False) -> dict[Path, str]:
+    def recognize_images_batch(self, image_paths: list[Path], verbose: bool = False,
+                               filter_images: bool = True) -> dict[Path, str]:
         """
         批量识别多张图片（带过滤 + 并发）
-        
+
         Args:
             image_paths: 图片路径列表
             verbose: 是否输出详细信息
-            
+            filter_images: 是否先过滤低价值图片。slide 模式整页渲染的图片
+                每页都有价值，且整页文字可能被纯色检测误判，应传 False。
+
         Returns:
             {图片路径: 识别结果} 字典
         """
@@ -204,8 +209,11 @@ class LLMVisionService:
         filtered_paths = []
         skipped_count = 0
         skip_reasons = {}
-        
+
         for path in image_paths:
+            if not filter_images:
+                filtered_paths.append(path)
+                continue
             should_rec, reason = self.filter.should_recognize(path)
             if should_rec:
                 filtered_paths.append(path)
@@ -214,13 +222,13 @@ class LLMVisionService:
                 skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
                 if verbose:
                     print(f"  跳过 {path.name}: {reason}")
-        
+
         if verbose:
             print(f"  过滤完成: {len(image_paths)} 张 → {len(filtered_paths)} 张需识别，{skipped_count} 张跳过")
             if skip_reasons:
                 for reason, count in skip_reasons.items():
                     print(f"    - {reason}: {count} 张")
-        
+
         if not filtered_paths:
             return {}
         
