@@ -522,6 +522,59 @@ class TestSlideStructuredOutput:
         assert _parse_slide_result('{"page_summary": "x"}') is None   # 旧 schema 缺 body
         assert _parse_slide_result("[图片识别失败: HTTP 429]") is None  # 错误占位符
 
+    def test_parse_slide_result_glm_multiline_body(self):
+        """GLM 风格：body 内是真实换行/制表符（未转义控制字符）→ 应解析成功
+
+        回归：glm-4.6v-flash 返回多行格式（字符串值内直接换行/制表），默认
+        json.loads 严格模式抛 Invalid control character → 整页解析失败降级为
+        裸 JSON。宽松模式（strict=False）应解析成功并走结构化渲染。
+        """
+        from doc_knowledge.converters import _parse_slide_result
+
+        text = (
+            '{"title": "风险", "overview": "o", "structure": "并列", '
+            '"body": "**提示**：谨慎\n\t- 风险一\n- 风险二"}'
+        )
+        result = _parse_slide_result(text)
+        assert result is not None
+        assert result["body"] == "**提示**：谨慎\n\t- 风险一\n- 风险二"
+
+    def test_parse_slide_result_fenced_json(self):
+        """外层带 ```json 围栏 → 剥围栏后解析成功"""
+        from doc_knowledge.converters import _parse_slide_result
+
+        text = (
+            "```json\n"
+            '{"title": "市场规模", "overview": "2026超700亿", '
+            '"structure": "总分结构", "body": "**总**：x\\n- a\\n- b"}\n'
+            "```"
+        )
+        result = _parse_slide_result(text)
+        assert result is not None
+        assert result["title"] == "市场规模"
+
+    def test_inject_slide_glm_multiline_structured(self):
+        """GLM 多行 body 注入后走结构化渲染，产物不出现裸 JSON 代码块
+
+        回归：修复前 GLM 返回降级为 `> 📊 **整页理解**: ```json … ``` `，
+        json.loads 对产物解析 89% 非法；修复后应渲染为可读 Markdown。
+        """
+        from doc_knowledge.converters import _inject_slide_blockquotes
+
+        md = "<!-- Slide number: 1 -->\n\n原文\n"
+        results = {
+            1: '{"title": "风险", "overview": "o", "structure": "并列", '
+               '"body": "**提示**：谨慎\n\t- 风险一\n- 风险二"}',
+        }
+        out = _inject_slide_blockquotes(md, results)
+
+        assert "📊 **风险**（并列）" in out
+        assert "**提示**：谨慎" in out
+        assert "- 风险一" in out
+        assert "- 风险二" in out
+        assert "```json" not in out          # 不出现裸 JSON 代码块
+        assert "整页理解" not in out          # 不降级为旧 blockquote
+
     def test_render_slide_page_structured(self):
         """总分结构：标题（结构）+ 概述 + body + 原文折叠"""
         from doc_knowledge.converters import _render_slide_page

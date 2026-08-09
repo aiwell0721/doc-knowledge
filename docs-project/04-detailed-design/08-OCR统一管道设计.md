@@ -339,6 +339,13 @@ class SlideFusionService(ABC):
 
 注：不用 blockquote 包整个 body（表格/列表会被 `>` 前缀破坏渲染）；原文 `<details>` 默认收起，作 VLM 复述的准确性校验源。若 VLM 把 title/overview/structure/body 输出为嵌套 dict/list（未守 prompt 约束，真实验证对章节小结页**稳定复现**），渲染时转 Markdown 兜底——dict 键 → `###` 小标题、list → 项目符号，避免裸 JSON 单行（2026-08-09）。
 
+**JSON 宽松解析（2026-08-10 修复）**：VLM 返回的"结构化 JSON"在解析层做了两处容错，避免降级为裸 JSON 原文嵌入——
+
+- **剥离 ```json 围栏**：部分 VLM（GLM 实测）外层用 ```json…``` 代码块包裹，先 `re.sub` 剥围栏再解析；
+- **宽松模式 `json.loads(text, strict=False)`**：GLM 返回的 `body` 字符串值内是**真实换行/制表符**（未转义控制字符），默认严格模式会抛 `Invalid control character` 导致整页解析失败 → 降级为 `> 📊 **整页理解**: {原文 JSON}`（裸 JSON，可读性差、下游 `json.loads` 89% 非法）。宽松模式允许字符串内控制字符，使多行 body 走结构化渲染路径。
+
+两处容错对 Qwen 等紧凑格式输出（字符串内用字面 `\n`）无副作用。修复后产物统一为可读 Markdown，不再出现无法解析的裸 JSON 块。
+
 ### 7.5 参考 VLM 配置（智谱 GLM-4.6V-Flash，免费）
 
 | 项 | 值 |

@@ -422,13 +422,19 @@ def _parse_slide_result(text: str) -> Optional[dict]:
     - 合法新 schema（含 body）→ dict（title/overview/structure/body）
     - 旧 schema JSON（缺 body）→ None（降级，保留原文）
     - 非 JSON / 失败占位符 → None
+
+    容错（2026-08-10）：部分 VLM（GLM 实测）输出多行格式——body 字符串值内是
+    真实换行/制表符（未转义控制字符）且外层包 ```json 围栏。先剥围栏，再用
+    宽松模式 strict=False 解析（允许字符串内控制字符），避免整页降级为裸 JSON。
     """
     import json
+    import re
 
     if not text or not text.strip() or text.startswith("["):
         return None
+    stripped = re.sub(r"^\s*```json\s*|\s*```\s*$", "", text.strip())
     try:
-        data = json.loads(text)
+        data = json.loads(stripped, strict=False)
     except (json.JSONDecodeError, TypeError):
         return None
     if not isinstance(data, dict):
