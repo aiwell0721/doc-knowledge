@@ -102,6 +102,8 @@ class TestSlideFusionServiceInit:
         assert "DK-正文" in svc.prompt  # 约定标记：必需字段标记
         assert "[DK-结构]" in svc.prompt  # 内容逻辑结构标记
         assert "不要输出 JSON" in svc.prompt  # 标记 Markdown 输出
+        # prompt 强化学（2026-08-10）：概述/结构必须输出，防止小模型（Qwen 7B）省略可选标记
+        assert "必须输出，不得省略" in svc.prompt
 
     def test_custom_params(self):
         svc = SlideFusionService(
