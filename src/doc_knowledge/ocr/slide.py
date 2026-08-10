@@ -19,19 +19,20 @@ from doc_knowledge.vision import LLMVisionService
 
 
 DEFAULT_SLIDE_PROMPT = (
-    "你正在分析一页 PPT 幻灯片。请输出结构化 JSON：\n"
-    "1. title：本页标题\n"
-    "2. overview：全文概述（1-2 句话）\n"
-    "3. structure：本页内容逻辑结构，从以下 7 种中选一"
+    "你正在分析一页 PPT 幻灯片。请用约定标记 Markdown 输出，不要输出 JSON：\n"
+    "每个标记单独占一行，标记后换行写对应内容：\n"
+    "[DK-标题] 本页标题\n"
+    "[DK-概述] 全文概述（1-2 句话）\n"
+    "[DK-结构] 本页内容逻辑结构，从以下 7 种中选一"
     "（一页混合多种时标注主结构，如\"总分结构（局部递进）\"）：\n"
     "   并列 / 递进 / 总分 / 分总 / 总分总 / 对比 / 矩阵象限\n"
-    "4. body：按识别结构组织的正文，转译规则——\n"
+    "[DK-正文] 按识别结构组织的正文，转译规则——\n"
     "   文字 → 文字；表格 → Markdown 表格；\n"
     "   数据型图表（柱状/折线/饼图/散点，含数值）→ Markdown 表格；\n"
     "   概念型图形（示意/流程图/装饰）→ 文字描述\n"
-    "   body 必须为 Markdown 文本字符串，禁止输出嵌套 JSON 对象；\n"
+    "   [DK-正文] 之后的全部内容即正文，可含任意 Markdown；\n"
     "   多栏/并列内容用 Markdown 标题 + 列表组织\n"
-    "只输出 JSON，不要额外解释。"
+    "标记缺省：标题/概述/结构可省略；[DK-正文] 不可省略。"
 )
 
 
@@ -57,8 +58,14 @@ def _page_num(img: Path) -> int:
 
 
 def _is_success(text: str) -> bool:
-    """识别成功判定：非空且非错误标记（[图片识别失败: ...]）"""
-    return bool(text.strip()) and not text.startswith("[")
+    """识别成功判定：非空且非错误标记（[图片识别失败: ...] / [图片解析失败: ...]）
+
+    不再用"以 [ 开头即失败"：约定标记 Markdown（[DK-标题] 等）也以 [ 开头，
+    精确匹配错误前缀，避免把正常标记输出误判为失败而无限重试。
+    """
+    return bool(text.strip()) and not text.startswith(
+        ("[图片识别失败", "[图片解析失败")
+    )
 
 
 class SlideFusionService:
@@ -93,8 +100,8 @@ class SlideFusionService:
             api_key=api_key,
             model=model,
             system_prompt=(
-                "你是幻灯片内容理解助手。请严格按照用户要求的 JSON 结构输出，"
-                "不输出多余内容。"
+                "你是幻灯片内容理解助手。请严格按照用户要求的约定标记 Markdown"
+                " 格式输出，不输出多余内容。"
             ),
             user_text=self.prompt,
             timeout=timeout,

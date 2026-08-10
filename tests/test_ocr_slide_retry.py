@@ -30,8 +30,8 @@ class _SlideAPIHandler(BaseHTTPRequestHandler):
         self.end_headers()
         resp = json.dumps(
             {"choices": [{"message": {"content": (
-                '{"title": "测试页", "overview": "主旨", '
-                '"structure": "总分结构", "body": "**总**：内容"}'
+                "[DK-标题]\n测试页\n\n[DK-概述]\n主旨\n\n"
+                "[DK-结构]\n总分结构\n\n[DK-正文]\n**总**：内容"
             )}}]}
         )
         self.wfile.write(resp.encode())
@@ -87,7 +87,7 @@ class TestRetryPages:
         results = svc.retry_pages(pptx, tmp_path, page_numbers=[1, 3])
         assert set(results) == {1, 3}  # 仅识别指定页，不识别 page2
         for num, text in results.items():
-            assert '"title"' in text
+            assert "[DK-正文]" in text
 
     def test_empty_page_list_returns_empty(self, tmp_path, monkeypatch):
         svc = SlideFusionService(api_url="http://x", api_key="k")
@@ -107,8 +107,8 @@ class TestUpdateSlideBlockquotes:
     """_update_slide_blockquotes：补跑后更新已有 markdown"""
 
     _SUCCESS = (
-        '{"title": "补跑页", "overview": "主旨", '
-        '"structure": "总分结构", "body": "**总**：补跑成功"}'
+        "[DK-标题]\n补跑页\n\n[DK-概述]\n主旨\n\n"
+        "[DK-结构]\n总分结构\n\n[DK-正文]\n**总**：补跑成功"
     )
 
     def test_replace_fallback_block(self):
@@ -141,8 +141,8 @@ class TestUpdateSlideBlockquotes:
             "<!-- Slide number: 2 -->\n\n内容B\n"
         )
         out = _update_slide_blockquotes(
-            md, {2: '{"title": "第二页", "overview": "概述", '
-                   '"structure": "并列结构", "body": "第二页补跑"}'}
+            md, {2: "[DK-标题]\n第二页\n\n[DK-概述]\n概述\n\n"
+                   "[DK-结构]\n并列结构\n\n[DK-正文]\n第二页补跑"}
         )
         # 第 1 页无结果，不注入
         assert "📊 **补跑页**" not in out
@@ -208,8 +208,8 @@ class TestRetrySlideCLI:
         monkeypatch.setattr(
             SlideFusionService, "retry_pages",
             lambda self, pptx, out, page_numbers, verbose=False: {
-                1: ('{"title": "补跑页", "overview": "主旨", '
-                    '"structure": "总分结构", "body": "**总**：补跑成功"}')
+                1: ("[DK-标题]\n补跑页\n\n[DK-概述]\n主旨\n\n"
+                    "[DK-结构]\n总分结构\n\n[DK-正文]\n**总**：补跑成功")
             },
         )
 
@@ -253,8 +253,8 @@ class TestRetrySlideCLI:
         monkeypatch.setattr(
             SlideFusionService, "retry_pages",
             lambda self, pptx, out, page_numbers, verbose=False: {
-                1: ('{"title": "补跑页", "overview": "主旨", '
-                    '"structure": "总分结构", "body": "**总**：补跑成功"}')
+                1: ("[DK-标题]\n补跑页\n\n[DK-概述]\n主旨\n\n"
+                    "[DK-结构]\n总分结构\n\n[DK-正文]\n**总**：补跑成功")
             },
         )
 

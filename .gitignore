@@ -58,6 +58,12 @@ test-docs/*.gif
 test-docs/*.bmp
 test-docs/*.tiff
 
+# VLM 双模型对比中间产物（PPTX 输入 / 转换输出）
+glm_input/
+glm_out/
+qwen_input/
+qwen_out/
+
 # Stray scratch / scan scripts in repo root
 .scan_secrets.py
 /test_vision.py

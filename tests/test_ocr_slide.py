@@ -36,16 +36,16 @@ class _SlideAPIHandler(BaseHTTPRequestHandler):
         assert img_item["image_url"]["url"].startswith("data:image/")
         text_item = user[1]
         assert text_item["type"] == "text"
-        # 新 schema：prompt 必须包含结构化字段关键词
-        assert any(k in text_item["text"] for k in ("title", "overview", "structure"))
+        # 约定标记格式：prompt 必须包含标记关键词（[DK-正文] 等）
+        assert "DK-正文" in text_item["text"]
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         resp = json.dumps(
             {"choices": [{"message": {"content": (
-                '{"title": "测试页", "overview": "主旨", '
-                '"structure": "总分结构", "body": "**总**：内容"'
+                "[DK-标题]\n测试页\n\n[DK-概述]\n主旨\n\n"
+                "[DK-结构]\n总分结构\n\n[DK-正文]\n**总**：内容"
             )}}]}
         )
         self.wfile.write(resp.encode())
@@ -99,8 +99,9 @@ class TestSlideFusionServiceInit:
         svc = SlideFusionService(api_url="http://x", api_key="k")
         assert svc.model == "glm-4.6v-flash"
         assert svc.dpi == 150
-        assert "structure" in svc.prompt  # 新 schema：内容逻辑结构字段
-        assert "禁止输出嵌套 JSON 对象" in svc.prompt  # body 必须为 Markdown 字符串
+        assert "DK-正文" in svc.prompt  # 约定标记：必需字段标记
+        assert "[DK-结构]" in svc.prompt  # 内容逻辑结构标记
+        assert "不要输出 JSON" in svc.prompt  # 标记 Markdown 输出
 
     def test_custom_params(self):
         svc = SlideFusionService(
@@ -197,7 +198,7 @@ class TestRecognizeSlides:
         assert len(results) == 2
         assert 1 in results and 2 in results
         for num, text in results.items():
-            assert '"title"' in text  # 新 schema 字段
+            assert "[DK-正文]" in text  # 约定标记：必需字段
 
     def test_429_retry_with_backoff(self, tmp_path, monkeypatch):
         """429 限流后按退避重试，最终成功
@@ -215,14 +216,14 @@ class TestRecognizeSlides:
                 return "[图片识别失败: HTTP Error 429: Too Many Requests]"
             if calls["n"] == 2:
                 return "[图片识别失败: HTTP Error 429: Too Many Requests]"
-            return '{"page_summary": "限流恢复后成功"}'
+            return "[DK-正文]\n限流恢复后成功"
 
         monkeypatch.setattr(svc._vision, "recognize_image", fake_recognize)
         monkeypatch.setattr("doc_knowledge.ocr.slide.time.sleep", lambda s: None)
 
         results = svc.recognize_slides([page], max_retries=3, retry_base_delay=1.0)
         assert calls["n"] == 3
-        assert results == {1: '{"page_summary": "限流恢复后成功"}'}
+        assert results == {1: "[DK-正文]\n限流恢复后成功"}
 
     def test_retry_exhausted_returns_last_error(self, tmp_path, monkeypatch):
         """重试耗尽后返回最后一次错误（不抛异常）"""
@@ -252,14 +253,14 @@ class TestRecognizeSlides:
             calls["n"] += 1
             if calls["n"] == 1:
                 return ""  # VLM 返回空串（非 [错误标记] 形态）
-            return '{"page_summary": "空串重试后成功"}'
+            return "[DK-正文]\n空串重试后成功"
 
         monkeypatch.setattr(svc._vision, "recognize_image", fake_recognize)
         monkeypatch.setattr("doc_knowledge.ocr.slide.time.sleep", lambda s: None)
 
         results = svc.recognize_slides([page], max_retries=3, retry_base_delay=1.0)
         assert calls["n"] == 2  # 空串触发重试，第二次成功
-        assert results == {1: '{"page_summary": "空串重试后成功"}'}
+        assert results == {1: "[DK-正文]\n空串重试后成功"}
 
     def test_whitespace_response_triggers_retry(self, tmp_path, monkeypatch):
         """纯空白响应同样视为失败触发重试"""
@@ -271,14 +272,14 @@ class TestRecognizeSlides:
             calls["n"] += 1
             if calls["n"] == 1:
                 return "   \n  "  # 纯空白
-            return '{"page_summary": "空白重试后成功"}'
+            return "[DK-正文]\n空白重试后成功"
 
         monkeypatch.setattr(svc._vision, "recognize_image", fake_recognize)
         monkeypatch.setattr("doc_knowledge.ocr.slide.time.sleep", lambda s: None)
 
         results = svc.recognize_slides([page], max_retries=3, retry_base_delay=1.0)
         assert calls["n"] == 2
-        assert results == {1: '{"page_summary": "空白重试后成功"}'}
+        assert results == {1: "[DK-正文]\n空白重试后成功"}
 
     def test_auto_retry_failed_pass(self, tmp_path, monkeypatch):
         """自动二次补跑：首轮单页重试也失败 → 补跑第二轮成功（默认开启）
@@ -299,8 +300,8 @@ class TestRecognizeSlides:
             if img.name == "page1.png" and n <= 4:
                 return "[图片识别失败: HTTP Error 429: Too Many Requests]"
             if img.name == "page1.png":
-                return '{"page_summary": "第一页补跑成功"}'
-            return '{"page_summary": "第二页"}'
+                return "[DK-正文]\n第一页补跑成功"
+            return "[DK-正文]\n第二页"
 
         monkeypatch.setattr(svc._vision, "recognize_image", fake_recognize)
         monkeypatch.setattr("doc_knowledge.ocr.slide.time.sleep", lambda s: None)
@@ -498,13 +499,13 @@ class TestConvertFileIntegration:
 class TestSlideStructuredOutput:
     """结构化输出：_parse_slide_result / _render_slide_page / _inject_slide_blockquotes"""
 
-    def test_parse_slide_result_valid(self):
-        """合法 JSON（含 body）→ dict"""
+    def test_parse_slide_result_marked_markdown(self):
+        """标准约定标记输入 → 返回正确 dict（title/overview/structure/body）"""
         from doc_knowledge.converters import _parse_slide_result
 
         text = (
-            '{"title": "市场规模", "overview": "2026超700亿", '
-            '"structure": "总分结构", "body": "**总**：x\\n- a\\n- b"}'
+            "[DK-标题]\n市场规模\n\n[DK-概述]\n2026超700亿\n\n"
+            "[DK-结构]\n总分结构\n\n[DK-正文]\n**总**：x\n- a\n- b"
         )
         result = _parse_slide_result(text)
         assert result is not None
@@ -513,58 +514,74 @@ class TestSlideStructuredOutput:
         assert result["structure"] == "总分结构"
         assert result["body"] == "**总**：x\n- a\n- b"
 
-    def test_parse_slide_result_invalid(self):
-        """非 JSON / 旧 schema（缺 body） / 错误占位符 → None"""
+    def test_parse_slide_result_only_body(self):
+        """仅 [DK-正文] → {"body": ...}（title/overview/structure 缺省不出现）"""
         from doc_knowledge.converters import _parse_slide_result
 
-        assert _parse_slide_result("整页：普通文本") is None          # 非 JSON
-        assert _parse_slide_result("not json") is None
-        assert _parse_slide_result('{"page_summary": "x"}') is None   # 旧 schema 缺 body
+        result = _parse_slide_result("[DK-正文]\n仅正文内容")
+        assert result == {"body": "仅正文内容"}
+
+    def test_parse_slide_result_missing_body(self):
+        """无 [DK-正文] 标记 → None"""
+        from doc_knowledge.converters import _parse_slide_result
+
+        assert _parse_slide_result("[DK-标题]\n只有标题") is None
+        assert _parse_slide_result("整页：普通文本") is None
+        assert _parse_slide_result('{"page_summary": "x"}') is None   # 旧 JSON schema 缺 body
+
+    def test_parse_slide_result_empty_body(self):
+        """[DK-正文] 后为空 → None（走降级）"""
+        from doc_knowledge.converters import _parse_slide_result
+
+        assert _parse_slide_result("[DK-标题]\nx\n\n[DK-正文]\n   ") is None
+        assert _parse_slide_result("[DK-正文]\n") is None
+
+    def test_parse_slide_result_invalid(self):
+        """失败占位符 → None"""
+        from doc_knowledge.converters import _parse_slide_result
+
         assert _parse_slide_result("[图片识别失败: HTTP 429]") is None  # 错误占位符
+        assert _parse_slide_result("[图片解析失败: timeout]") is None
 
-    def test_parse_slide_result_glm_multiline_body(self):
-        """GLM 风格：body 内是真实换行/制表符（未转义控制字符）→ 应解析成功
+    def test_parse_slide_result_multiline_body(self):
+        """标记 Markdown：body 内真实换行/制表符原生成立，无需转义
 
-        回归：glm-4.6v-flash 返回多行格式（字符串值内直接换行/制表），默认
-        json.loads 严格模式抛 Invalid control character → 整页解析失败降级为
-        裸 JSON。宽松模式（strict=False）应解析成功并走结构化渲染。
+        回归：JSON 时代 GLM 的 body 值内真实换行/制表符导致 json.loads 抛
+        Invalid control character → 整页降级。标记 Markdown 无转义负担，
+        多行正文直接解析成功。
         """
         from doc_knowledge.converters import _parse_slide_result
 
         text = (
-            '{"title": "风险", "overview": "o", "structure": "并列", '
-            '"body": "**提示**：谨慎\n\t- 风险一\n- 风险二"}'
+            "[DK-标题]\n风险\n\n[DK-概述]\no\n\n[DK-结构]\n并列\n\n"
+            "[DK-正文]\n**提示**：谨慎\n\t- 风险一\n- 风险二"
         )
         result = _parse_slide_result(text)
         assert result is not None
         assert result["body"] == "**提示**：谨慎\n\t- 风险一\n- 风险二"
 
-    def test_parse_slide_result_fenced_json(self):
-        """外层带 ```json 围栏 → 剥围栏后解析成功"""
+    def test_parse_slide_result_leading_text(self):
+        """标记前有额外解释文本（未严格守格式）仍能解析——正则提取不受前置内容影响"""
         from doc_knowledge.converters import _parse_slide_result
 
-        text = (
-            "```json\n"
-            '{"title": "市场规模", "overview": "2026超700亿", '
-            '"structure": "总分结构", "body": "**总**：x\\n- a\\n- b"}\n'
-            "```"
-        )
+        text = "识别结果如下：\n[DK-标题]\n市场规模\n\n[DK-正文]\n核心结论"
         result = _parse_slide_result(text)
         assert result is not None
         assert result["title"] == "市场规模"
+        assert result["body"] == "核心结论"
 
-    def test_inject_slide_glm_multiline_structured(self):
-        """GLM 多行 body 注入后走结构化渲染，产物不出现裸 JSON 代码块
+    def test_inject_slide_multiline_structured(self):
+        """标记 Markdown 多行 body 注入后走结构化渲染，产物不出现裸 JSON 代码块
 
-        回归：修复前 GLM 返回降级为 `> 📊 **整页理解**: ```json … ``` `，
-        json.loads 对产物解析 89% 非法；修复后应渲染为可读 Markdown。
+        回归：JSON 时代 GLM 返回降级为 `> 📊 **整页理解**: ```json … ``` `，
+        json.loads 对产物解析 89% 非法；标记迁移后应渲染为可读 Markdown。
         """
         from doc_knowledge.converters import _inject_slide_blockquotes
 
         md = "<!-- Slide number: 1 -->\n\n原文\n"
         results = {
-            1: '{"title": "风险", "overview": "o", "structure": "并列", '
-               '"body": "**提示**：谨慎\n\t- 风险一\n- 风险二"}',
+            1: "[DK-标题]\n风险\n\n[DK-概述]\no\n\n[DK-结构]\n并列\n\n"
+               "[DK-正文]\n**提示**：谨慎\n\t- 风险一\n- 风险二",
         }
         out = _inject_slide_blockquotes(md, results)
 
@@ -603,8 +620,8 @@ class TestSlideStructuredOutput:
             "<!-- Slide number: 2 -->\n\n第二页原文B\n"
         )
         results = {
-            1: '{"title": "页一", "overview": "o1", "structure": "并列", "body": "b1"}',
-            2: '{"title": "页二", "overview": "o2", "structure": "递进", "body": "b2"}',
+            1: "[DK-标题]\n页一\n\n[DK-概述]\no1\n\n[DK-结构]\n并列\n\n[DK-正文]\nb1",
+            2: "[DK-标题]\n页二\n\n[DK-概述]\no2\n\n[DK-结构]\n递进\n\n[DK-正文]\nb2",
         }
         out = _inject_slide_blockquotes(md, results)
 
@@ -692,7 +709,7 @@ class TestSlideStructuredOutput:
 
         md = "<!-- Slide number: 1 -->\n\n第一页原文\n"
         out = _inject_slide_blockquotes(
-            md, {1: '{"title": "页一", "overview": "o", "structure": "并列", "body": "b"}'}
+            md, {1: "[DK-标题]\n页一\n\n[DK-概述]\no\n\n[DK-结构]\n并列\n\n[DK-正文]\nb"}
         )
 
         assert not out.startswith("\n")

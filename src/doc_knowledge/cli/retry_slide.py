@@ -12,7 +12,7 @@ import click
 
 from doc_knowledge.cli._helpers import console
 from doc_knowledge.converters import _update_slide_blockquotes
-from doc_knowledge.ocr.slide import SlideFusionService
+from doc_knowledge.ocr.slide import SlideFusionService, _is_success
 
 
 @click.command("retry-slide")
@@ -63,7 +63,7 @@ def retry_slide(markdown_path: Path, ocr_api_url: str, ocr_api_key: str,
     new_md = _update_slide_blockquotes(md_text, results)
     markdown_path.write_text(new_md, encoding="utf-8")
 
-    succeeded = [n for n, t in results.items() if t and not t.startswith("[")]
+    succeeded = [n for n, t in results.items() if _is_success(t)]
     console.print(
         f"[bold green]补跑完成：成功 {len(succeeded)} 页[/bold green]，"
         f"仍失败 {len(failed_pages) - len(succeeded)} 页（可稍后再试）"

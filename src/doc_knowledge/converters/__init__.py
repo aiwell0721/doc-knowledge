@@ -408,40 +408,42 @@ def _slide_desc(desc: str) -> str:
     """识别失败的错误占位符降级为可读提示
 
     错误占位符形态（[图片识别失败: ...] / [图片解析失败: ...]）不直接写进
-    markdown，避免暴露 HTTP 错误堆栈。
+    markdown，避免暴露 HTTP 错误堆栈。缺失 body 的标记 Markdown 仍可读，
+    原样返回（不丢弃）。
     """
-    if desc.startswith("["):
+    if desc.startswith(("[图片识别失败", "[图片解析失败")):
         return "⚠️ 本页图表语义识别失败（VLM 请求异常），原始文字已保留"
     return desc
 
 
 def _parse_slide_result(text: str) -> Optional[dict]:
-    """解析 VLM 输出的结构化 JSON；非法或缺少核心字段（body）返回 None
+    """解析 VLM 输出的约定标记 Markdown（[DK-xxx] 标签）；缺/空 body 返回 None
 
     VLM 文本形态：
-    - 合法新 schema（含 body）→ dict（title/overview/structure/body）
-    - 旧 schema JSON（缺 body）→ None（降级，保留原文）
-    - 非 JSON / 失败占位符 → None
+    - 含 [DK-正文] 且非空 → dict（title/overview/structure 可选，body 必需）
+    - 缺 [DK-正文] 或正文为空 → None（降级，保留原文）
+    - 失败占位符（[图片识别失败...] / [图片解析失败...]）→ None
 
-    容错（2026-08-10）：部分 VLM（GLM 实测）输出多行格式——body 字符串值内是
-    真实换行/制表符（未转义控制字符）且外层包 ```json 围栏。先剥围栏，再用
-    宽松模式 strict=False 解析（允许字符串内控制字符），避免整页降级为裸 JSON。
+    标签值 = 标签后到下一个 [DK- 标签（或文本末尾）前的全部内容；
+    [DK-正文] 特殊——取到文本末尾，故 body 可含任意 Markdown 不被后续标签截断。
+    纯文本标记无转义负担，无需 json.loads 容错层（2026-08-10 JSON→标记迁移）。
     """
-    import json
     import re
 
-    if not text or not text.strip() or text.startswith("["):
+    if not text or not text.strip() or text.startswith(("[图片识别失败", "[图片解析失败")):
         return None
-    stripped = re.sub(r"^\s*```json\s*|\s*```\s*$", "", text.strip())
-    try:
-        data = json.loads(stripped, strict=False)
-    except (json.JSONDecodeError, TypeError):
+    result: dict = {}
+    # 可选字段：标题/概述/结构 —— 标签后到下一标签前为值
+    for key, tag in (("title", "标题"), ("overview", "概述"), ("structure", "结构")):
+        m = re.search(rf"\[DK-{tag}\](.*?)(?=\[DK-|\Z)", text, re.S)
+        if m:
+            result[key] = m.group(1).strip()
+    # 必需字段：正文 —— 标签后到文本末尾
+    m = re.search(r"\[DK-正文\](.*)\Z", text, re.S)
+    if not m or not m.group(1).strip():
         return None
-    if not isinstance(data, dict):
-        return None
-    if not data.get("body"):  # 核心字段：结构化的正文
-        return None
-    return data
+    result["body"] = m.group(1).strip()
+    return result
 
 
 def _render_slide_page(page_text: str, result: dict) -> str:
