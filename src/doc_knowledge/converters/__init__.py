@@ -1,6 +1,9 @@
 """文档转换器包 - 基于 MarkItDown 封装"""
 
+import json
 import logging
+import re
+import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -217,8 +220,6 @@ def _extract_docx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Pa
     而不是字典序（会得到 image1, image10, image11, image2, ...）。
     Word 写入 media 时通常用 imageN.png 自然命名，数字序与文档流顺序基本一致。
     """
-    import re
-    import zipfile
 
     images_dir = output_dir / f"{filepath.name}_images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -251,7 +252,6 @@ def _image_sort_key(name: str):
       "word/media/image10.png" → (0, 10, "image10.png")
       "word/media/cover.jpg"   → (1, 0, "cover.jpg")  # 无数字，字典序兜底
     """
-    import re
     basename = Path(name).name
     m = re.search(r'(\d+)', basename)
     if m:
@@ -273,7 +273,6 @@ def _build_image_map(markdown: str, image_paths: list[Path], source_name: str) -
     若文档使用非数字命名或多图布局复杂，映射可能错位——
     彻底修复需用 python-docx 解析 <a:blip r:embed> 文档流顺序。
     """
-    import re
 
     if not image_paths:
         return []
@@ -313,7 +312,6 @@ def _drop_meaningless_images(
         return markdown, image_map, image_paths
 
     # 1) 删除 md 中命中的本地图片引用（按位置计数，外部链接不参与）
-    import re
 
     ref_re = re.compile(r'!\[.*?\]\(([^)]+)\)')
     local_index = 0
@@ -346,7 +344,6 @@ def _strip_image_refs(markdown: str) -> str:
     slide 模式识别对象是整页截图而非内嵌图，内嵌图引用是噪音，
     整页理解块已含视觉信息，无需保留内嵌图占位。
     """
-    import re
 
     return re.sub(r'!\[.*?\]\([^)]+\)', '', markdown)
 
@@ -383,7 +380,6 @@ def _inject_ocr_blockquotes(
     避免"替换文本自身含 .jpg 锚点导致反复匹配同一位置、识别结果全部堆叠在
     第一张图片处"的问题。
     """
-    import re
 
     if not recognized:
         return markdown
@@ -432,7 +428,6 @@ def _parse_slide_result(text: str) -> Optional[dict]:
     [DK-正文] 特殊——取到文本末尾，故 body 可含任意 Markdown 不被后续标签截断。
     纯文本标记无转义负担，无需 json.loads 容错层（2026-08-10 JSON→标记迁移）。
     """
-    import re
 
     if not text or not text.strip() or text.startswith(("[图片识别失败", "[图片解析失败")):
         return None
@@ -456,7 +451,6 @@ def _render_slide_page(page_text: str, result: dict) -> str:
     result: _parse_slide_result 解析后的 dict（title/overview/structure/body）
     page_text: MarkItDown 该页原始文本（<details> 折叠作兜底参考，可靠性 > 体积）
     """
-    import json
 
     def _fmt(v):
         """字段非 str（VLM 嵌套 dict/list）时转为可读 Markdown，避免裸 JSON
@@ -512,7 +506,6 @@ def _inject_slide_blockquotes(markdown: str, slide_results: dict[int, str]) -> s
     - 失败占位符（[图片识别失败...]）→ 降级提示
     无结果的页（页码缺失或识别失败）保持原样。
     """
-    import re
 
     if not slide_results:
         return markdown
@@ -547,7 +540,6 @@ def _update_slide_blockquotes(markdown: str, slide_results: dict[int, str]) -> s
       用新结果重新渲染——成功→结构化输出（含原文折叠），仍失败→降级提示
     - 非目标页：保持原样（不重复注入、不覆盖已有成功块）
     """
-    import re
 
     if not slide_results:
         return markdown

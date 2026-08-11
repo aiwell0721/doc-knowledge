@@ -11,9 +11,6 @@ Doc-Knowledge Web UI — Gradio 界面
 import os
 import subprocess
 import sys
-import tempfile
-import threading
-from pathlib import Path
 
 import gradio as gr
 
@@ -79,7 +76,10 @@ def do_convert(source, output, format_filter, recursive, overwrite, dry_run,
             cmd += ["--ocr-api-url", api_url]
         if api_key:
             cmd += ["--ocr-api-key", api_key]
-        cmd += ["--ocr-model", model or "qwen-vl-plus"]
+        # 模型留空时不传参，回退到配置文件 ~/.doc-knowledge/config.yaml 的默认值，
+        # 避免 webui 硬编码默认模型与配置文件打架
+        if model:
+            cmd += ["--ocr-model", model]
     if verbose:
         cmd += ["-v"]
 
@@ -232,7 +232,7 @@ with gr.Blocks(title=f"Doc-Knowledge v{__version__}") as app:
                     pipe_vision = gr.Checkbox(label="图片 OCR 识别")
                     pipe_vision_api_url = gr.Textbox(label="OCR API URL", placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1", lines=1, visible=False)
                     pipe_vision_api_key = gr.Textbox(label="OCR API Key", type="password", lines=1, visible=False)
-                    pipe_vision_model = gr.Textbox(label="OCR 模型", value="qwen-vl-plus", lines=1, visible=False)
+                    pipe_vision_model = gr.Textbox(label="OCR 模型", placeholder="留空用配置文件默认模型", lines=1, visible=False)
                     pipe_verbose = gr.Checkbox(label="详细日志")
 
             pipe_btn = gr.Button("🚀 开始全流程", variant="primary", size="lg")
@@ -278,7 +278,7 @@ with gr.Blocks(title=f"Doc-Knowledge v{__version__}") as app:
                     cvt_vision = gr.Checkbox(label="图片 OCR 识别")
                     cvt_api_url = gr.Textbox(label="OCR API URL", placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1", lines=1, visible=False)
                     cvt_api_key = gr.Textbox(label="OCR API Key", type="password", lines=1, visible=False)
-                    cvt_model = gr.Textbox(label="OCR 模型", value="qwen-vl-plus", lines=1, visible=False)
+                    cvt_model = gr.Textbox(label="OCR 模型", placeholder="留空用配置文件默认模型", lines=1, visible=False)
                     cvt_verbose = gr.Checkbox(label="详细日志")
 
             cvt_btn = gr.Button("🔄 开始转换", variant="primary")

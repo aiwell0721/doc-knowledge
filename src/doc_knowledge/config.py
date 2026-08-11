@@ -41,6 +41,7 @@ class SlideOCRConfig:
     dpi: int = 150  # 整页渲染分辨率
     prompt: str = ""  # 覆盖默认 slide prompt；空串用内置默认
     libreoffice_path: str = ""  # soffice 可执行文件路径；空串自动探测
+    max_concurrency: int = 1  # 并发识别页数；免费 VLM 限流，默认串行
 
 
 @dataclass
@@ -131,6 +132,7 @@ def _build_config(raw: dict) -> Config:
         dpi=slide_raw.get("dpi", SlideOCRConfig.dpi),
         prompt=slide_raw.get("prompt", SlideOCRConfig.prompt),
         libreoffice_path=slide_raw.get("libreoffice_path", SlideOCRConfig.libreoffice_path),
+        max_concurrency=slide_raw.get("max_concurrency", SlideOCRConfig.max_concurrency),
     )
 
     return Config(

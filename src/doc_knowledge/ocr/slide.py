@@ -7,15 +7,19 @@
 流程：soffice PPTX→PDF（完整渲染）→ fitz 整页 PNG → 云端 VLM → {页码: 文本}
 """
 
+import logging
 import re
 import shutil
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
 from doc_knowledge.vision import LLMVisionService
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_SLIDE_PROMPT = (
@@ -191,10 +195,12 @@ class SlideFusionService:
         retry_base_delay: float = 5.0,
         retry_failed_pass: bool = True,
     ) -> dict[int, str]:
-        """逐张送云端 VLM，返回 {页码: 结构化文本}
+        """送云端 VLM 识别整页截图，返回 {页码: 结构化文本}
 
-        串行发送（免费 VLM 对并发/速率限流）；429/连接失败/空响应时
-        按 5s → 10s → 20s 指数退避重试，等待额度恢复。
+        并发度由 max_concurrency 控制（默认 1=串行，免费 VLM 对并发/速率
+        限流）；并发 >1 时用线程池并行发送，各页独立重试互不阻塞，
+        结果仍按页码顺序返回。429/连接失败/空响应时按 5s → 10s → 20s
+        指数退避重试，等待额度恢复。
 
         retry_failed_pass=True（默认）：第一轮全页识别后，对失败页再补跑一轮。
         第二轮时距第一轮已隔一段时间，限流额度恢复，失败页补跑成功率显著提升。
@@ -202,21 +208,29 @@ class SlideFusionService:
         页码从文件名 page{N}.png 提取；非该命名时按传入顺序兜底。
         """
 
-        results: dict[int, str] = {}
+        # 建立 页码 → 图片 映射（有序）
+        pairs: list[tuple[int, Path]] = []
         fallback = 0
-        img_by_num: dict[int, Path] = {}
         for img in sorted(page_images, key=_page_num):
             num = _page_num(img)
-            img_by_num.setdefault(num, img)
-            text = self._recognize_with_retry(
-                img, verbose=verbose, max_retries=max_retries,
-                retry_base_delay=retry_base_delay,
-            )
             if num:
-                results[num] = text
+                pairs.append((num, img))
             else:
                 fallback += 1
-                results[fallback] = text
+                pairs.append((fallback, img))
+        # 同名页码去重（setdefault 语义：保留第一个）
+        seen: set[int] = set()
+        unique_pairs: list[tuple[int, Path]] = []
+        for num, img in pairs:
+            if num not in seen:
+                seen.add(num)
+                unique_pairs.append((num, img))
+        img_by_num = dict(unique_pairs)
+
+        results = self._recognize_pass(
+            unique_pairs, verbose=verbose,
+            max_retries=max_retries, retry_base_delay=retry_base_delay,
+        )
 
         # 自动二次补跑：仅对失败页再来一轮
         if retry_failed_pass:
@@ -224,14 +238,55 @@ class SlideFusionService:
             if failed:
                 if verbose:
                     print(f"  自动补跑 {len(failed)} 个失败页: {sorted(failed)}")
-                for num in failed:
-                    img = img_by_num.get(num)
-                    if img is not None:
-                        results[num] = self._recognize_with_retry(
-                            img, verbose=verbose, max_retries=max_retries,
-                            retry_base_delay=retry_base_delay,
-                        )
+                retry_pairs = [(num, img_by_num[num]) for num in failed
+                               if num in img_by_num]
+                results.update(self._recognize_pass(
+                    retry_pairs, verbose=verbose,
+                    max_retries=max_retries, retry_base_delay=retry_base_delay,
+                ))
         return dict(sorted(results.items()))
+
+    def _recognize_pass(
+        self,
+        pairs: list[tuple[int, Path]],
+        verbose: bool,
+        max_retries: int,
+        retry_base_delay: float,
+    ) -> dict[int, str]:
+        """单轮识别：max_concurrency > 1 时线程池并行，否则串行
+
+        各页独立走 _recognize_with_retry（含指数退避），并行时退避等待
+        只阻塞本页线程，不再拖住后续所有页。
+        """
+        workers = self._vision.max_workers
+        if workers <= 1 or len(pairs) <= 1:
+            return {
+                num: self._recognize_with_retry(
+                    img, verbose=verbose, max_retries=max_retries,
+                    retry_base_delay=retry_base_delay,
+                )
+                for num, img in pairs
+            }
+
+        results: dict[int, str] = {}
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_num = {
+                executor.submit(
+                    self._recognize_with_retry,
+                    img, verbose=verbose, max_retries=max_retries,
+                    retry_base_delay=retry_base_delay,
+                ): num
+                for num, img in pairs
+            }
+            for future in future_to_num:
+                num = future_to_num[future]
+                try:
+                    results[num] = future.result()
+                except Exception as e:
+                    # recognize_image 内部已捕获网络/解析异常，这里是兜底
+                    logger.warning("第 %d 页识别线程异常: %s", num, e)
+                    results[num] = f"[图片识别失败: {e}]"
+        return results
 
     def _recognize_with_retry(
         self,

@@ -7,7 +7,6 @@
 
 import base64
 import json
-import hashlib
 import io
 import logging
 import time
@@ -27,12 +26,11 @@ class ImageFilter:
         self,
         min_size: int = 500,           # 最小文件大小（字节）
         min_resolution: int = 50,      # 最小分辨率（宽或高）
-        max_similarity_threshold: float = 0.95,  # 最大相似度阈值
+        max_similarity_threshold: float = 0.95,  # 最大相似度阈值（预留，相似图去重未实现）
     ):
         self.min_size = min_size
         self.min_resolution = min_resolution
         self.max_similarity_threshold = max_similarity_threshold
-        self._hash_cache = {}
     
     def should_recognize(self, image_path: Path) -> tuple[bool, str]:
         """

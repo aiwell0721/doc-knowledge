@@ -42,8 +42,9 @@ def create_ocr_service(config: Config) -> OCRService | SlideFusionService | None
             model=cloud.model,
             dpi=slide.dpi,
             prompt=slide.prompt or None,
-            # 不继承 cloud.max_concurrency：免费 VLM（glm-4.6v-flash）并发限流，
-            # slide 默认串行（max_concurrency=1），用户如需并发自行调整配置。
+            # 并发走 slide.max_concurrency（默认 1=串行）而非 cloud.max_concurrency：
+            # 免费 VLM（glm-4.6v-flash）并发限流，需要并发的付费模型自行调配置。
+            max_concurrency=slide.max_concurrency,
             timeout=cloud.timeout,
             libreoffice_path=slide.libreoffice_path,
         )
