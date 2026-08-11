@@ -1,7 +1,10 @@
 """文档转换器包 - 基于 MarkItDown 封装"""
 
+import logging
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 _PDF_TEXT_DENSITY_THRESHOLD = 50  # 平均每页字符数阈值
@@ -32,7 +35,8 @@ def _pdf_has_text_layer(pdf_path: Path) -> bool:
         total_chars = sum(len(page.get_text().strip()) for page in doc)
         doc.close()
         return (total_chars / page_count) >= _PDF_TEXT_DENSITY_THRESHOLD
-    except Exception:
+    except Exception as e:
+        logger.debug("PDF 文字层检测失败，按有文字层处理: %s (%s)", pdf_path.name, e)
         return True
 
 
@@ -56,8 +60,8 @@ def _render_pdf_pages(pdf_path: Path, output_dir: Path) -> list[Path]:
             images.append(img_path)
 
         doc.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("PDF 页面渲染失败: %s (%s)", pdf_path.name, e)
 
     return images
 
@@ -200,8 +204,8 @@ def _extract_pptx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Pa
                         f.write(image_bytes)
                     image_paths.append(image_path)
                     image_count += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("PPTX 图片提取失败 slide%d shape%d: %s", i + 1, j + 1, e)
 
     return image_count, image_paths
 
@@ -233,8 +237,8 @@ def _extract_docx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Pa
                     f.write(image_data)
                 image_paths.append(image_path)
                 image_count += 1
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("DOCX 图片提取失败: %s (%s)", filepath.name, e)
 
     return image_count, image_paths
 

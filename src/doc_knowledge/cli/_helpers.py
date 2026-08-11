@@ -3,6 +3,7 @@
 不应被外部直接 import；命令文件通过 `from doc_knowledge.cli._helpers import ...` 使用。
 """
 
+import logging
 import re
 import shutil
 from pathlib import Path
@@ -21,6 +22,7 @@ from doc_knowledge.ocr import create_ocr_service
 from doc_knowledge.utils import make_frontmatter
 
 
+logger = logging.getLogger(__name__)
 console = Console()
 
 
@@ -58,15 +60,20 @@ def _setup_ocr(ocr_mode, ocr_api_url="", ocr_api_key="", ocr_model=""):
 
 
 def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=False,
-                 ocr_service=None, dry_run=False):
-    """convert 核心逻辑（CLI 和 pipeline 共用），返回 stats dict"""
+                 ocr_service=None, dry_run=False, overwrite=False):
+    """convert 核心逻辑（CLI 和 pipeline 共用），返回 stats dict
+
+    overwrite=False 时，输出文件已存在则跳过（stats["existing"] 计数）；
+    overwrite=True 时重新转换并覆盖。
+    """
     source_dir = source_dir.resolve()
     output_dir = output_dir.resolve()
 
     all_files = list(source_dir.rglob("*") if recursive else source_dir.iterdir())
     all_files = [f for f in all_files if f.is_file()]
 
-    stats = {"converted": 0, "copied": 0, "skipped": 0, "errors": 0, "images": 0}
+    stats = {"converted": 0, "copied": 0, "skipped": 0, "errors": 0, "images": 0,
+             "existing": 0}
 
     if not all_files:
         console.print("[yellow]未找到任何文件[/yellow]")
@@ -106,6 +113,13 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
         for source_file in to_convert:
             rel = source_file.relative_to(source_dir)
             progress.update(task, description=f"转换: {rel}")
+            output_file = output_dir / rel.parent / f"{source_file.name}.md"
+            if output_file.exists() and not overwrite:
+                stats["existing"] += 1
+                if verbose:
+                    console.print(f"  [dim]- {rel}: 已存在，跳过（--overwrite 覆盖）[/dim]")
+                progress.advance(task)
+                continue
             try:
                 result = convert_file(
                     source_file, output_dir=output_dir,
@@ -131,7 +145,6 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
                     # extra 参数在 YAML 关闭符 --- 之前生成，避免 images_extracted 拼接在 frontmatter 外
                     extra={"images_extracted": images} if images > 0 else None,
                 )
-                output_file = output_dir / rel.parent / f"{source_file.name}.md"
                 output_file.parent.mkdir(parents=True, exist_ok=True)
                 output_file.write_text(frontmatter + markdown, encoding="utf-8")
                 stats["converted"] += 1
@@ -140,14 +153,18 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
                     console.print(f"  [green]+ {rel}: {images} images extracted[/green]")
             except Exception as e:
                 stats["errors"] += 1
+                logger.warning("转换失败 %s: %s", rel, e)
                 if verbose:
-                    err_msg = str(e)[:200].encode("ascii", errors="replace").decode("ascii")
+                    err_msg = str(e)[:200]
                     console.print(f"  [red]X {rel}: {err_msg}[/red]")
             progress.advance(task)
 
     for img in to_copy:
         rel = img.relative_to(source_dir)
         dest = output_dir / rel
+        if dest.exists() and not overwrite:
+            stats["existing"] += 1
+            continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(img, dest)
         stats["copied"] += 1
@@ -155,9 +172,12 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
     for other in to_skip:
         rel = other.relative_to(source_dir)
         dest = output_dir / rel
+        wrapper = dest.parent / f"{other.name}.md"
+        if wrapper.exists() and not overwrite:
+            stats["existing"] += 1
+            continue
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(other, dest)
-        wrapper = dest.parent / f"{other.name}.md"
         wrapper.write_text(make_frontmatter(
             title=other.name, source_path=other.resolve(),
             source_relative=str(rel), original_format=other.suffix.lstrip("."),
@@ -166,28 +186,22 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
         stats["skipped"] += 1
 
     console.print(f"[dim]转换: {stats['converted']}, 图片: {stats['images']}, "
-                  f"复制: {stats['copied']}, 跳过: {stats['skipped']}, 错误: {stats['errors']}[/dim]")
+                  f"复制: {stats['copied']}, 跳过: {stats['skipped']}, "
+                  f"已存在: {stats['existing']}, 错误: {stats['errors']}[/dim]")
 
     return stats
 
 
-def _run_extract(mirror_dir, output_dir, threshold=0.85, min_score=30,
-                 keep_deprecated=False, simhash=False, merge=False,
-                 incremental=False, previous_output=None, verbose=False):
-    """extract 的内部逻辑（供 pipeline 调用）"""
+def _collect_documents(mirror_dir, min_score, incremental=False, output_dir=None):
+    """读取 Markdown + 评分 + 打标签，返回 documents 列表
+
+    extract 命令与 pipeline 共用的核心步骤。
+    incremental=True 且 output_dir 已存在时，跳过 mtime 未变更的文件。
+    """
     mirror_dir = mirror_dir.resolve()
-    output_dir = output_dir.resolve()
-
-    # 增量更新：检查哪些文件是新的
-    if incremental and output_dir.exists():
-        console.print("[dim]增量模式：仅处理变更文件...[/dim]")
-        # 获取已存在的文件
-        existing = {f.name: f for f in output_dir.rglob("*.md")}
-
     md_files = sorted(mirror_dir.rglob("*.md"))
     if not md_files:
-        console.print("[yellow]未找到 Markdown 文件[/yellow]")
-        return
+        return []
 
     documents = []
     scorer = ValueScorer(min_score=min_score)
@@ -195,7 +209,7 @@ def _run_extract(mirror_dir, output_dir, threshold=0.85, min_score=30,
 
     for md_file in md_files:
         # 增量模式：跳过未变更的文件
-        if incremental and output_dir.exists():
+        if incremental and output_dir is not None and output_dir.exists():
             rel = md_file.relative_to(mirror_dir)
             existing_file = output_dir / rel
             if existing_file.exists():
@@ -213,39 +227,99 @@ def _run_extract(mirror_dir, output_dir, threshold=0.85, min_score=30,
             "score": score_result["total"], "score_detail": score_result, "tags": tags,
         })
 
-    # 去重
+    return documents
+
+
+def _dedup_and_merge(documents, threshold=0.85, simhash=False, merge=False):
+    """去重 + 可选版本合并，返回 (kept, duplicates)"""
     if simhash:
         dedup = SimHashDeduplicator(threshold=int(threshold * 64))
     else:
         dedup = Deduplicator(threshold=threshold)
     kept, duplicates = dedup.deduplicate(documents)
 
-    # 版本合并
     if merge and kept:
         merger = VersionMerger()
         kept, merged_docs = merger.merge(kept)
         duplicates.extend(merged_docs)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if keep_deprecated:
-        (output_dir / "deprecated").mkdir(exist_ok=True)
+    return kept, duplicates
 
-    stats = {"kept": 0, "deduped": 0, "low_score": 0}
+
+def _write_extracted(kept, duplicates, mirror_dir, output_dir, min_score,
+                     keep_deprecated=False, verbose=False):
+    """写出提取结果（frontmatter + 图片引用修复），返回 stats dict
+
+    keep_deprecated=True 时将去重淘汰的文档写入 deprecated/ 目录。
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    deprecated_dir = output_dir / "deprecated"
+    if keep_deprecated:
+        deprecated_dir.mkdir(exist_ok=True)
+
+    stats = {"kept": 0, "deduped": 0, "low_score": 0, "errors": 0}
 
     for doc in kept:
         if doc["score"] < min_score:
             stats["low_score"] += 1
+            if verbose:
+                console.print(f"  [yellow]低分跳过[/yellow] {doc['path'].name} "
+                              f"(score={doc['score']})")
             continue
-        content = _add_extract_frontmatter(doc["content"], doc)
-        rel = doc["path"].relative_to(mirror_dir)
-        content = _fixup_image_refs(content, rel, mirror_dir.name)
-        dest = output_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content, encoding="utf-8")
-        stats["kept"] += 1
+        try:
+            content = _add_extract_frontmatter(doc["content"], doc)
+            rel = doc["path"].relative_to(mirror_dir)
+            content = _fixup_image_refs(content, rel, mirror_dir.name)
+            dest = output_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+            stats["kept"] += 1
+        except Exception as e:
+            stats["errors"] += 1
+            logger.warning("写出失败 %s: %s", doc["path"].name, e)
+            if verbose:
+                console.print(f"  [red]X {doc['path'].name}: {str(e)[:200]}[/red]")
+
+    for doc in duplicates:
+        stats["deduped"] += 1
+        if keep_deprecated:
+            try:
+                rel = doc["path"].relative_to(mirror_dir)
+                dest = deprecated_dir / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                content = _add_extract_frontmatter(doc["content"], doc)
+                dest.write_text(content, encoding="utf-8")
+            except Exception as e:
+                logger.warning("deprecated 写出失败 %s: %s", doc["path"].name, e)
+
+    return stats
+
+
+def _run_extract(mirror_dir, output_dir, threshold=0.85, min_score=30,
+                 keep_deprecated=False, simhash=False, merge=False,
+                 incremental=False, previous_output=None, verbose=False):
+    """extract 的内部逻辑（供 pipeline 调用），返回 stats dict"""
+    mirror_dir = mirror_dir.resolve()
+    output_dir = output_dir.resolve()
+
+    if incremental and output_dir.exists():
+        console.print("[dim]增量模式：仅处理变更文件...[/dim]")
+
+    documents = _collect_documents(mirror_dir, min_score,
+                                   incremental=incremental, output_dir=output_dir)
+    if not documents:
+        console.print("[yellow]未找到 Markdown 文件[/yellow]")
+        return {"kept": 0, "deduped": 0, "low_score": 0, "errors": 0}
+
+    kept, duplicates = _dedup_and_merge(documents, threshold=threshold,
+                                        simhash=simhash, merge=merge)
+    stats = _write_extracted(kept, duplicates, mirror_dir, output_dir, min_score,
+                             keep_deprecated=keep_deprecated, verbose=verbose)
 
     console.print(f"[dim]保留: {stats['kept']}, 去重: {len(duplicates)}, "
-                  f"低分: {stats['low_score']}, 合并: {len([d for d in duplicates if 'merged_into' in d])}[/dim]")
+                  f"低分: {stats['low_score']}, 合并: "
+                  f"{len([d for d in duplicates if 'merged_into' in d])}[/dim]")
+    return stats
 
 
 def _fixup_image_refs(markdown: str, rel_path: Path, mirror_name: str) -> str:

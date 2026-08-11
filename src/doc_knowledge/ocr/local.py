@@ -1,5 +1,6 @@
 """本地 OCR 服务 — Tesseract 后端"""
 
+import logging
 import os
 import shutil
 import subprocess
@@ -7,6 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 from doc_knowledge.ocr.base import OCRService
+
+logger = logging.getLogger(__name__)
 
 
 class LocalOCRService(OCRService):
@@ -79,8 +82,9 @@ class LocalOCRService(OCRService):
 
         except ImportError:
             return "[pytesseract 未安装，请运行: pip install pytesseract]"
-        except Exception:
+        except Exception as e:
             # 尝试用 subprocess 直接调用 tesseract
+            logger.debug("pytesseract 调用失败，回退 subprocess: %s (%s)", image_path.name, e)
             return self._fallback_tesseract(image_path)
 
     def _fallback_tesseract(self, image_path: Path) -> str:

@@ -45,6 +45,7 @@ def convert(source_dir, output_dir, formats, recursive, overwrite, dry_run,
         recursive=recursive, verbose=verbose,
         ocr_service=ocr_service,
         dry_run=dry_run,
+        overwrite=overwrite,
     )
 
     if dry_run:
@@ -56,4 +57,5 @@ def convert(source_dir, output_dir, formats, recursive, overwrite, dry_run,
 
     console.print()
     console.print(f"[bold green]完成！转换 {stats['converted']}, 图片 {stats['images']}, "
-                  f"复制 {stats['copied']}, 跳过 {stats['skipped']}, 错误 {stats['errors']}[/bold green]")
+                  f"复制 {stats['copied']}, 跳过 {stats['skipped']}, "
+                  f"已存在 {stats['existing']}, 错误 {stats['errors']}[/bold green]")

@@ -9,12 +9,15 @@ import base64
 import json
 import hashlib
 import io
+import logging
 import time
 from pathlib import Path
 from typing import Optional
 import urllib.request
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logger = logging.getLogger(__name__)
 
 
 class ImageFilter:
@@ -139,8 +142,9 @@ class LLMVisionService:
                 buffer = io.BytesIO()
                 img.save(buffer, format="JPEG", quality=85)
                 image_data = buffer.getvalue()
-            except Exception:
-                pass
+            except Exception as e:
+                # 压缩失败时用原图继续，仅记录日志
+                logger.debug("图片压缩失败，使用原图: %s (%s)", image_path.name, e)
         
         # 确定 MIME 类型
         ext = image_path.suffix.lower()
@@ -186,9 +190,18 @@ class LLMVisionService:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 return result["choices"][0]["message"]["content"]
-        except urllib.error.URLError as e:
+        except urllib.error.HTTPError as e:
+            # HTTPError 是 URLError 子类，需先捕获以保留状态码
+            logger.warning("图片识别 HTTP 错误 %s: %s (%s)", e.code, e.reason, image_path.name)
+            return f"[图片识别失败: HTTP {e.code} {e.reason}]"
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            # urlopen 超时抛 TimeoutError（socket.timeout 的别名），
+            # 与 URLError 一样属于网络层错误，必须捕获——否则 slide 模式
+            # 单页超时会让整个文件转换失败
+            logger.warning("图片识别网络错误: %s (%s)", e, image_path.name)
             return f"[图片识别失败: {e}]"
-        except (KeyError, IndexError) as e:
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            logger.warning("图片识别响应解析失败: %s (%s)", e, image_path.name)
             return f"[图片解析失败: {e}]"
     
     def recognize_images_batch(self, image_paths: list[Path], verbose: bool = False,

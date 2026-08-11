@@ -6,6 +6,8 @@ Doc-Knowledge CLI 入口
 通过 `from doc_knowledge.cli import main` 取主入口（兼容旧版单文件 cli.py）。
 """
 
+import logging
+
 import click
 
 from doc_knowledge import __version__
@@ -19,9 +21,16 @@ from doc_knowledge.cli.webui import webui
 
 @click.group()
 @click.version_option(version=__version__, prog_name="doc-knowledge")
-def main():
+@click.option("--log-level", default="WARNING", show_default=True,
+              type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"],
+                                case_sensitive=False),
+              help="日志级别（输出到 stderr）")
+def main(log_level):
     """Doc-Knowledge: 文档知识提取工具"""
-    pass
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format="%(levelname)s %(name)s: %(message)s",
+    )
 
 
 main.add_command(convert)
