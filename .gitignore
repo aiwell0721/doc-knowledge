@@ -74,3 +74,6 @@ docs-project/**/build/
 
 # Claude Code / Superpowers scratch directory
 .superpowers/
+
+# WorkBuddy tool memory directory
+.workbuddy/

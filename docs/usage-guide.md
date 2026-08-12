@@ -313,6 +313,96 @@ doc-knowledge pipeline ./presentations \
 
 ---
 
-## 8. 故障排查
+## 8. Slide 模式（整页 PPT 识别）与 VLM 模型选择
+
+Slide 模式把**整页 PPT 渲染成图片**，由视觉大模型（VLM）一次性读取"文字 + 图片 + 空间"三维信息，输出结构化 Markdown（标题 / 概述 / 内容结构 / 正文）。适用于含图表、复杂排版的 PPT——比仅 OCR 内嵌图片更能还原页面语义。
+
+### 8.1 开启方式
+
+```bash
+doc-knowledge convert ./presentations -o ./output --ocr slide
+```
+
+需安装 LibreOffice（用于 PPTX→PDF 整页渲染，Windows 可用 `winget install TheDocumentFoundation.LibreOffice`）。输出每页含 `📊 **标题**（结构）` + 概述 + 正文 + markitdown 原文折叠兜底。
+
+### 8.2 默认模型与配置文件
+
+OCR 配置存放在 **`~/.doc-knowledge/config.yaml`**（用户主目录，不在项目目录）。默认使用 **GLM-4.6V-Flash**（智谱免费模型）：
+
+```yaml
+ocr:
+  enabled: true
+  mode: cloud
+  cloud:
+    api_url: "https://open.bigmodel.cn/api/paas/v4"
+    api_key: "${ZHIPU_API_KEY}"   # 环境变量引用，见 8.4
+    model: "glm-4.6v-flash"
+    max_concurrency: 2
+    timeout: 120
+  slide:
+    dpi: 150
+    libreoffice_path: ""          # 留空自动探测
+```
+
+### 8.3 切换模型（GLM ↔ Qwen）
+
+#### 方式 A：修改配置文件（持久生效）
+
+**切换到 Qwen2.5-VL-7B**（先启动本地 Gradio 适配器连到 HF Space ppt-reader）。默认配置文件 `~/.doc-knowledge/config.yaml` 已内置注释版 Qwen 配置——**注释掉 GLM 的 `api_url/api_key/model` 三行、取消 Qwen 三行注释**即可，无需从本文复制：
+
+```yaml
+  cloud:
+    # api_url: "http://127.0.0.1:8765/v1"   # 本地代理 → HF Space
+    # api_key: "gradio"
+    # model: "qwen2.5-vl-7b-instruct"
+    # max_concurrency: 1       # ZeroGPU 串行排队，不支持并发
+    # timeout: 300             # ZeroGPU 冷启动可能很慢
+```
+
+**切回 GLM**：恢复 GLM 的 `api_url/api_key/model` 三行注释状态即可。
+
+#### 方式 B：CLI 参数临时覆盖（单次生效）
+
+```bash
+# 临时用 Qwen（默认配置仍是 GLM）
+doc-knowledge convert in -o out --ocr slide \
+  --ocr-api-url http://127.0.0.1:8765/v1 \
+  --ocr-api-key gradio --ocr-model qwen2.5-vl-7b-instruct
+
+# 临时用 GLM（默认配置是 Qwen 时）
+doc-knowledge convert in -o out --ocr slide \
+  --ocr-api-url https://open.bigmodel.cn/api/paas/v4 \
+  --ocr-api-key $ZHIPU_API_KEY --ocr-model glm-4.6v-flash
+```
+
+> `--ocr-api-url` / `--ocr-api-key` / `--ocr-model` 优先级高于配置文件。
+
+### 8.4 设置 API Key
+
+`config.yaml` 用 `${ZHIPU_API_KEY}` 引用环境变量，避免把密钥写进配置文件：
+
+```bash
+# Windows（PowerShell，设置后需重开终端生效）
+setx ZHIPU_API_KEY "你的密钥"
+
+# macOS / Linux
+echo 'export ZHIPU_API_KEY="你的密钥"' >> ~/.bashrc && source ~/.bashrc
+```
+
+智谱 API Key 在 [open.bigmodel.cn](https://open.bigmodel.cn) 控制台免费申请（`glm-4.6v-flash` 为免费模型）。
+
+### 8.5 模型选择建议
+
+| 维度 | GLM-4.6V-Flash | Qwen2.5-VL-7B |
+|------|---------------|---------------|
+| 接入 | 官方 API，需申请 Key | 本地代理 → HF Space，无需 Key |
+| 速度 / 稳定性 | 快、稳定（官方 API） | 慢（ZeroGPU 排队 / 限流 / 冷启动） |
+| 质量 | 结构识别准确 | 7B 小模型结构识别偶有偏差 |
+| 表格还原 | 准确 | 准确 |
+| 数据去向 | 内容发往智谱云端 | 经本地代理转发到 HF 云端 |
+
+两者强化后四标记提取率均 100%、0 降级，差异主要在速度与结构精度。**默认建议 GLM**；无 Key 或网络仅通 HF 时用 Qwen。
+
+## 9. 故障排查
 
 见 [故障排查](./troubleshooting.md)。
