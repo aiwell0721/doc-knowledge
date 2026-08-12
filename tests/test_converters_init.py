@@ -387,3 +387,57 @@ class TestImageMap:
         )
         # .jpg 引用保留（路径替换仍由调用方统一负责）
         assert result.count("](.jpg)") == 3
+
+
+class TestPPTXLayout:
+    """convert_file(with_layout=True) 注入 PPTX 版式/结构标注"""
+
+    @staticmethod
+    def _make_pptx(tmp_path, name="layout.pptx") -> Path:
+        """生成两页 PPTX：第1页 标题+文本框，第2页 标题+表格"""
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        fp = tmp_path / name
+        prs = Presentation()
+        slide1 = prs.slides.add_slide(prs.slide_layouts[0])
+        slide1.shapes.title.text = "市场分析"
+        tb = slide1.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(1))
+        tb.text_frame.text = "正文内容"
+
+        slide2 = prs.slides.add_slide(prs.slide_layouts[0])
+        slide2.shapes.title.text = "数据表"
+        table = slide2.shapes.add_table(3, 2, Inches(1), Inches(2), Inches(4), Inches(2)).table
+        table.cell(0, 0).text = "指标"
+        table.cell(0, 1).text = "数值"
+
+        prs.save(str(fp))
+        return fp
+
+    def test_layout_injected_when_enabled(self, tmp_path):
+        """with_layout=True 时注入版式标注，且出现在页码锚点之后（正文之前）"""
+        fp = self._make_pptx(tmp_path)
+        md, _, _ = convert_file(fp, with_layout=True)
+
+        assert "🗂" in md
+        assert "**版式**" in md
+        # 标注插入到每页锚点行之后、正文之前
+        anchor_idx = md.index("<!-- Slide number: 1 -->")
+        layout_idx = md.index("🗂")
+        assert layout_idx > anchor_idx
+
+    def test_layout_off_by_default(self, tmp_path):
+        """默认 with_layout=False 不注入版式标注"""
+        fp = self._make_pptx(tmp_path)
+        md, _, _ = convert_file(fp)
+
+        assert "🗂" not in md
+
+    def test_layout_not_applied_to_txt(self, tmp_path):
+        """with_layout 只作用于 PPTX，非 PPTX 输出不变"""
+        fp = tmp_path / "plain.txt"
+        fp.write_text("Hello world", encoding="utf-8")
+        md, _, _ = convert_file(fp, with_layout=True)
+
+        assert "🗂" not in md
+        assert "Hello world" in md

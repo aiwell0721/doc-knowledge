@@ -49,7 +49,7 @@ docs-project/
 | # | 文档 | 说明 | 版本 |
 |---|------|------|------|
 | 01 | [CLI 设计规范](./04-detailed-design/01-CLI设计规范.md) | 命令设计 | v0.3.0 |
-| 02 | [转换器设计](./04-detailed-design/02-转换器设计.md) | MarkItDown 封装 + 图片提取 + 视觉识别 | v0.3.1 |
+| 02 | [转换器设计](./04-detailed-design/02-转换器设计.md) | MarkItDown 封装 + 图片提取 + 视觉识别 + PPTX 版式标注 | v0.4.0 |
 | 03 | [提取器设计](./04-detailed-design/03-提取器设计.md) | 去重/价值评分算法 | v0.1.0 |
 | 04 | [技术选型与方案](./04-detailed-design/04-技术选型与方案.md) | 开源方案调研 + 技术决策 | v0.1.0 |
 | 05 | [Phase2详细设计](./04-detailed-design/05-Phase2详细设计.md) | MemoMind导出/SimHash/版本合并/增量更新/后处理 | v0.2.0 |

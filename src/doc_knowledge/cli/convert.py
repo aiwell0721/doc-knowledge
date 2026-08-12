@@ -21,11 +21,13 @@ from doc_knowledge.cli._options import ocr_options
               help="覆盖已存在的文件")
 @click.option("--dry-run", is_flag=True,
               help="仅显示将要转换的文件，不实际转换")
+@click.option("--with-layout", is_flag=True,
+              help="解析 PPTX 时注入版式/结构标注（shape 角色 + 相对区域）")
 @ocr_options
 @click.option("-v", "--verbose", is_flag=True,
               help="详细输出")
 def convert(source_dir, output_dir, formats, recursive, overwrite, dry_run,
-            ocr_mode, ocr_api_url, ocr_api_key, ocr_model, verbose):
+            with_layout, ocr_mode, ocr_api_url, ocr_api_key, ocr_model, verbose):
     """将文档转换为 Markdown 镜像（A → B）"""
     source_dir = source_dir.resolve()
     if output_dir is None:
@@ -46,6 +48,7 @@ def convert(source_dir, output_dir, formats, recursive, overwrite, dry_run,
         ocr_service=ocr_service,
         dry_run=dry_run,
         overwrite=overwrite,
+        with_layout=with_layout,
     )
 
     if dry_run:

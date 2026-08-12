@@ -60,11 +60,11 @@ def _setup_ocr(ocr_mode, ocr_api_url="", ocr_api_key="", ocr_model=""):
 
 
 def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=False,
-                 ocr_service=None, dry_run=False, overwrite=False):
+                 ocr_service=None, dry_run=False, overwrite=False, with_layout=False):
     """convert 核心逻辑（CLI 和 pipeline 共用），返回 stats dict
 
     overwrite=False 时，输出文件已存在则跳过（stats["existing"] 计数）；
-    overwrite=True 时重新转换并覆盖。
+    overwrite=True 时重新转换并覆盖。with_layout=True 时 PPTX 注入版式标注。
     """
     source_dir = source_dir.resolve()
     output_dir = output_dir.resolve()
@@ -125,6 +125,7 @@ def _run_convert(source_dir, output_dir, formats=None, recursive=True, verbose=F
                     source_file, output_dir=output_dir,
                     ocr_service=ocr_service,
                     verbose=verbose,
+                    with_layout=with_layout,
                 )
                 if isinstance(result, tuple):
                     markdown, images, image_map = result

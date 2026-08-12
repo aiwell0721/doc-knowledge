@@ -49,7 +49,27 @@ doc-knowledge convert ./my-docs --format pdf --format docx
 
 # 预览（不实际转换）
 doc-knowledge convert ./my-docs --dry-run
+
+# 解析 PPTX 时注入版式标注（辅助理解胶片结构）
+doc-knowledge convert ./presentations --with-layout
 ```
+
+### PPTX 版式标注（`--with-layout`）
+
+解析 PPTX 时，默认只输出 MarkItDown 的内容流（标题 / 列表 / 表格），页面空间关系被拍扁。加 `--with-layout` 后，每页会在正文前额外注入一行版式标注，描述该页各元素的**角色与相对布局**，便于理解胶片的图文空间关系：
+
+```markdown
+<!-- Slide number: 3 -->
+> 🗂 **版式**: 标题(整页宽) · 正文(左上) · 数据表 3×4(右下)
+
+# 市场分析
+| 指标 | 2024 | 2025E | 2026E |
+| ... |
+```
+
+- 标注基于 python-pptx 的结构化信息（标题 / 正文 / 表格 / 图片 / 图表 + 相对区域），**不渲染、不 OCR、不解包 XML**
+- 默认关闭，不影响已导入知识库的内容
+- 仅作用于非 OCR 模式解析的 PPTX；slide 模式（整页 VLM）本身由模型像素级理解版式，无需标注
 
 ### 输出结构
 

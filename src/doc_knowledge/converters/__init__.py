@@ -74,6 +74,7 @@ def convert_file(
     output_dir: Optional[Path] = None,
     ocr_service=None,
     verbose: bool = False,
+    with_layout: bool = False,
 ) -> tuple[str, int, list[tuple[str, str]]]:
     """
     使用 MarkItDown 将文件转换为 Markdown
@@ -83,6 +84,7 @@ def convert_file(
         output_dir: 输出目录（用于保存图片）
         ocr_service: 可选的 OCR 服务（统一接口，详见 ocr/base.py）
         verbose: 是否输出详细信息
+        with_layout: 解析 PPTX 时注入版式/结构标注（默认关闭）
 
     Returns:
         (Markdown 文本, 提取的图片数量, 图片映射 [(ref_name, new_path), ...])
@@ -141,6 +143,12 @@ def convert_file(
         slide_results = ocr_service.process_pptx(filepath, output_dir, verbose=verbose)
         markdown = _inject_slide_blockquotes(markdown, slide_results)
         return markdown, 0, []
+
+    # PPTX 版式/结构标注（可选）：每页注入 shape 角色与相对区域
+    # 仅非 OCR 模式（slide 模式已在上方 return）；基于 python-pptx，不渲染不 OCR
+    if with_layout and filepath.suffix.lower() == '.pptx':
+        layouts = _extract_pptx_layout(filepath)
+        markdown = _inject_layout_blocks(markdown, layouts)
 
     # 提取图片（PPTX/DOCX）
     if output_dir is not None:
@@ -211,6 +219,107 @@ def _extract_pptx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Pa
                     logger.debug("PPTX 图片提取失败 slide%d shape%d: %s", i + 1, j + 1, e)
 
     return image_count, image_paths
+
+
+def _extract_pptx_layout(filepath: Path) -> dict[int, list[str]]:
+    """提取 PPTX 每页的版式/结构标注，返回 {页码(1-based): [元素标注, ...]}
+
+    页码与 MarkItDown 输出的 `<!-- Slide number: N -->` 锚点对齐。
+    基于 python-pptx 结构化信息（shape 角色 + 相对区域），不渲染、不 OCR、
+    不解包 XML；python-pptx 未安装时静默返回空。
+    """
+    try:
+        from pptx import Presentation
+    except ImportError:
+        return {}
+
+    try:
+        prs = Presentation(str(filepath))
+    except Exception as e:
+        logger.debug("PPTX 版式标注解析失败: %s (%s)", filepath.name, e)
+        return {}
+
+    slide_w = prs.slide_width
+    slide_h = prs.slide_height
+
+    layouts: dict[int, list[str]] = {}
+    for i, slide in enumerate(prs.slides, start=1):
+        items: list[str] = []
+        for shape in slide.shapes:
+            role = _shape_role(shape)
+            if role is None:
+                continue
+            region = _shape_region(shape, slide_w, slide_h)
+            if region:
+                role += f"({region})"
+            items.append(role)
+        if items:
+            layouts[i] = items
+    return layouts
+
+
+def _shape_role(shape) -> Optional[str]:
+    """返回 shape 的角色描述；无文本且无结构的装饰元素返回 None"""
+    try:
+        if shape.is_placeholder:
+            from pptx.enum.shapes import PP_PLACEHOLDER
+            ph_type = shape.placeholder_format.type
+            if ph_type in (
+                PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE,
+                PP_PLACEHOLDER.VERTICAL_TITLE, PP_PLACEHOLDER.SUBTITLE,
+            ):
+                return "标题"
+            return "占位符"
+        if shape.has_chart:
+            return "图表"
+        if shape.has_table:
+            return f"表格 {len(shape.table.rows)}×{len(shape.table.columns)}"
+        if shape.shape_type == 13:  # Picture
+            return "图片"
+        if shape.shape_type == 6:  # Group
+            return "分组"
+        if shape.has_text_frame and shape.text_frame.text.strip():
+            return "正文"
+    except Exception as e:
+        logger.debug("PPTX 版式标注跳过 shape: %s", e)
+    return None
+
+
+def _shape_region(shape, slide_w: int, slide_h: int) -> str:
+    """按 shape 位置与大小归纳为粗粒度相对区域（不含精确像素坐标）"""
+    try:
+        left, top, width, height = shape.left, shape.top, shape.width, shape.height
+    except Exception:
+        return ""
+    if not all(v is not None for v in (left, top, width, height)):
+        return ""
+    if width >= slide_w * 0.9:
+        return "整页宽"
+    if height >= slide_h * 0.9:
+        return "整页高"
+    left_side = (left + width / 2) < slide_w * 0.5
+    upper = (top + height / 2) < slide_h * 0.5
+    # 窄条元素（横贯文本框）按"栏"描述，方块元素按"方位"描述
+    if width < slide_w * 0.5 and height < slide_h * 0.6:
+        return "左栏" if left_side else "右栏"
+    return ("左上" if left_side else "右上") if upper else ("左下" if left_side else "右下")
+
+
+def _inject_layout_blocks(markdown: str, layouts: dict[int, list[str]]) -> str:
+    """按 `<!-- Slide number: N -->` 锚点，把版式标注注入到每页正文之前
+
+    仅注入有标注的页；未命中锚点或空标注的页保持原样。
+    """
+    if not layouts:
+        return markdown
+
+    def repl(match) -> str:
+        items = layouts.get(int(match.group(1)))
+        if not items:
+            return match.group(0)
+        return f"{match.group(0)}\n> 🗂 **版式**: {' · '.join(items)}"
+
+    return re.sub(r'<!-- Slide number: (\d+) -->', repl, markdown)
 
 
 def _extract_docx_images(filepath: Path, output_dir: Path) -> tuple[int, list[Path]]:
