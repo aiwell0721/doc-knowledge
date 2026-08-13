@@ -198,6 +198,31 @@ class TestLLMVisionServiceInit:
         assert svc.max_workers == 5
         assert isinstance(svc.filter, ImageFilter)
 
+    def test_default_prompt_has_digit_shape_constraints(self):
+        """默认 prompt 必须含数字形状特征约束与不确定标注"""
+        svc = LLMVisionService(
+            api_url="https://api.example.com",
+            api_key="key",
+        )
+        # A：数字识别依据视觉形状特征，禁止臆测
+        assert "封闭圆圈数" in svc.system_prompt
+        assert "开口方向" in svc.system_prompt
+        assert "弧线走向" in svc.system_prompt
+        assert "禁止臆测" in svc.system_prompt
+        # B：无法确认的字符标注不确定性
+        assert "[?可能为" in svc.system_prompt
+
+    def test_default_prompt_retains_original_constraints(self):
+        """默认 prompt 增强后仍保留原有约束（排版/图表/示意图/只输出文字）"""
+        svc = LLMVisionService(
+            api_url="https://api.example.com",
+            api_key="key",
+        )
+        assert "排版顺序" in svc.system_prompt
+        assert "如果是图表" in svc.system_prompt
+        assert "如果是示意图或流程图" in svc.system_prompt
+        assert "只输出识别到的文字" in svc.system_prompt
+
     def test_custom_params(self):
         svc = LLMVisionService(
             api_url="https://custom.api.com/v1/",

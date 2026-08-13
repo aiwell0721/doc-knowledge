@@ -55,7 +55,7 @@ docs-project/
 | 05 | [Phase2详细设计](./04-detailed-design/05-Phase2详细设计.md) | MemoMind导出/SimHash/版本合并/增量更新/后处理 | v0.2.0 |
 | 06 | [图片识别设计](./04-detailed-design/06-图片识别设计.md) | 大模型视觉识别/OCR集成方案 | v0.1.0 |
 | 07 | [Web UI设计](./04-detailed-design/07-Web%20UI设计.md) | Gradio 可视化面板/5标签页/动态表单 | v0.1.0 |
-| 08 | [OCR 统一管道设计](./04-detailed-design/08-OCR统一管道设计.md) | 云/本地/混合/幻灯片四模式，PaddleOCR/Tesseract/LibreOffice | v0.2.0 |
+| 08 | [OCR 统一管道设计](./04-detailed-design/08-OCR统一管道设计.md) | 云/本地/混合/幻灯片四模式，PaddleOCR/Tesseract/LibreOffice | v0.3.0 |
 
 ## 第5类：产品开发计划 (`05-development-plan/`)
 
