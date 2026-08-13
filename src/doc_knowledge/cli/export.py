@@ -8,7 +8,11 @@ from doc_knowledge import __version__
 from doc_knowledge.cli._helpers import console, _run_memomind_post_processing
 from doc_knowledge.cli._options import memomind_options, memomind_post_options
 from doc_knowledge.exporters.obsidian import ObsidianExporter, MarkdownExporter
-from doc_knowledge.exporters.memomind import MemoMindExporter, MemoMindMCPExporter
+from doc_knowledge.exporters.memomind import (
+    MemoMindExporter,
+    MemoMindMCPExporter,
+    MemoMindSchemaError,
+)
 
 
 @click.command("export")
@@ -55,7 +59,7 @@ def export_cmd(knowledge_dir, target_type, vault_path, output_dir,
             raise click.exceptions.Exit(1)
         try:
             stats = exporter.export(knowledge_dir)
-        except ConnectionError as e:
+        except (ConnectionError, MemoMindSchemaError) as e:
             console.print(f"[red]{e}[/red]")
             raise click.exceptions.Exit(1)
     else:

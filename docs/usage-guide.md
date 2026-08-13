@@ -185,6 +185,11 @@ doc-knowledge export ./knowledge \
   --workspace default
 ```
 
+> ⚠️ **SQLite 直写的 schema 风险**：此模式直接向 MemoMind 的数据库写入，依赖其表结构（`notes`/`tags`/`note_tags`/`workspaces`）。**MemoMind 升级后 schema 可能变更**。
+> - 导出前会做 **schema 自检**，表或必需列缺失时明确报错并提示改用 HTTP 模式——不会写坏数据
+> - 直写前建议**先备份** MemoMind 数据库
+> - 更稳的方式是使用上方的 **HTTP 模式**（`--api-url`），由 MemoMind 服务端维护数据契约
+
 ---
 
 ## 5. pipeline 命令（全流程）

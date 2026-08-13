@@ -5,6 +5,7 @@ MemoMind 导出器
 """
 
 import json
+import logging
 import sqlite3
 import time
 import urllib.request
@@ -12,6 +13,55 @@ import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+
+class MemoMindSchemaError(Exception):
+    """MemoMind 数据库 schema 与导出器硬编码假设不兼容"""
+
+
+# MCP 本地模式直写所需的表与必需列（MemoMind 升级后可能变更）
+_REQUIRED_SCHEMA = {
+    "workspaces": {"id", "name", "created_at"},
+    "notes": {"id", "workspace_id", "title", "content", "created_at", "updated_at"},
+    "tags": {"id", "name"},
+    "note_tags": {"note_id", "tag_id"},
+}
+
+
+def _validate_memomind_schema(conn) -> None:
+    """校验 MemoMind 数据库 4 表必需列存在，缺失抛 MemoMindSchemaError
+
+    直写第三方 SQLite 前必调：schema 漂移方向不可预知（MemoMind 升级），
+    与其静默失败或写入错误数据，不如明确拒绝并提示改用 HTTP 模式。
+    """
+    cursor = conn.cursor()
+
+    missing_tables = []
+    for table in _REQUIRED_SCHEMA:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        if cursor.fetchone() is None:
+            missing_tables.append(table)
+    if missing_tables:
+        raise MemoMindSchemaError(
+            f"MemoMind 数据库缺少表: {', '.join(missing_tables)}。"
+            "schema 可能已随 MemoMind 变更，请改用 HTTP 模式 (--api-url) 或升级 MemoMind"
+        )
+
+    missing_columns = {}
+    for table, required_cols in _REQUIRED_SCHEMA.items():
+        cursor.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in cursor.fetchall()}
+        diff = required_cols - existing
+        if diff:
+            missing_columns[table] = sorted(diff)
+    if missing_columns:
+        detail = "; ".join(f"{t} 缺 {', '.join(cols)}" for t, cols in missing_columns.items())
+        raise MemoMindSchemaError(
+            f"MemoMind 数据库 schema 不兼容: {detail}。"
+            "请改用 HTTP 模式 (--api-url) 或升级 MemoMind"
+        )
 
 
 class MemoMindExporter:
@@ -69,10 +119,17 @@ class MemoMindMCPExporter:
             raise FileNotFoundError(f"MemoMind 数据库不存在: {self.db_path}")
 
         conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
-        workspace_id = self._get_or_create_workspace(cursor, self.workspace)
-
         try:
+            # 写前校验：schema 不兼容时明确失败，不写坏第三方数据库
+            _validate_memomind_schema(conn)
+            logger.warning(
+                "直写 MemoMind 数据库 %s，建议先备份（schema 可能随 MemoMind 升级变更）",
+                self.db_path,
+            )
+
+            cursor = conn.cursor()
+            workspace_id = self._get_or_create_workspace(cursor, self.workspace)
+
             for md_file in sorted(knowledge_dir.rglob("*.md")):
                 if md_file.is_dir():
                     continue

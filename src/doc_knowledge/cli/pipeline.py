@@ -16,7 +16,11 @@ from doc_knowledge.cli._helpers import (
 )
 from doc_knowledge.cli._options import ocr_options, memomind_options, memomind_post_options
 from doc_knowledge.exporters.obsidian import ObsidianExporter, MarkdownExporter
-from doc_knowledge.exporters.memomind import MemoMindExporter, MemoMindMCPExporter
+from doc_knowledge.exporters.memomind import (
+    MemoMindExporter,
+    MemoMindMCPExporter,
+    MemoMindSchemaError,
+)
 
 
 @click.command("pipeline")
@@ -107,7 +111,7 @@ def pipeline(source_dir, final_output, target_type, vault_path,
                     # MemoMind 后处理
                     if db_path and (run_dedup or run_consolidate):
                         _run_memomind_post_processing(db_path, workspace, run_dedup, run_consolidate)
-                except ConnectionError as e:
+                except (ConnectionError, MemoMindSchemaError) as e:
                     console.print(f"[yellow]{e}[/yellow]")
         else:
             if not final_output:

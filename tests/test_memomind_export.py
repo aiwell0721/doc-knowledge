@@ -330,3 +330,132 @@ def test_timestamp_not_integer():
                 assert False, f"时间戳 '{val}' 意外地可解析为整型——应该是 ISO 格式"
             except ValueError:
                 pass  # 预期：ISO 字符串不能转换为 int
+
+
+# ──────────────────────────────────────────────
+# Schema 风险防护测试
+# ──────────────────────────────────────────────
+
+def test_memomind_schema_missing_table_raises():
+    """缺表时抛 MemoMindSchemaError，消息含表名与 HTTP 模式提示"""
+    import pytest
+    from doc_knowledge.exporters.memomind import (
+        MemoMindMCPExporter, MemoMindSchemaError,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = _create_memomind_db(tmpdir)
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("DROP TABLE note_tags")
+        conn.commit()
+        conn.close()
+
+        knowledge = _create_test_knowledge_dir(tmpdir, count=1)
+        exporter = MemoMindMCPExporter(db_path, workspace="default")
+        with pytest.raises(MemoMindSchemaError) as excinfo:
+            exporter.export(knowledge)
+        assert "note_tags" in str(excinfo.value)
+        assert "HTTP" in str(excinfo.value) or "api-url" in str(excinfo.value)
+
+
+def test_memomind_schema_missing_column_raises():
+    """必需列缺失时抛 MemoMindSchemaError"""
+    import pytest
+    from doc_knowledge.exporters.memomind import (
+        MemoMindMCPExporter, MemoMindSchemaError,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "memomind_bad.db"
+        conn = sqlite3.connect(str(db_path))
+        # notes 表缺 content 列
+        conn.execute("""
+            CREATE TABLE notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id INTEGER,
+                title TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE workspaces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                created_at TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)
+        """)
+        conn.execute("""
+            CREATE TABLE note_tags (
+                note_id INTEGER, tag_id INTEGER, PRIMARY KEY (note_id, tag_id)
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        knowledge = _create_test_knowledge_dir(tmpdir, count=1)
+        exporter = MemoMindMCPExporter(db_path, workspace="default")
+        with pytest.raises(MemoMindSchemaError) as excinfo:
+            exporter.export(knowledge)
+        assert "content" in str(excinfo.value)
+
+
+def test_memomind_connection_closed_on_error(monkeypatch):
+    """workspace 创建抛错时连接必须被关闭（不泄漏）"""
+    import pytest
+    from doc_knowledge.exporters import memomind as memomind_mod
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = _create_memomind_db(tmpdir)
+        knowledge = _create_test_knowledge_dir(tmpdir, count=1)
+
+        real_connect = memomind_mod.sqlite3.connect
+        conns = []
+
+        class ConnSpy:
+            def __init__(self, conn):
+                self._conn = conn
+                self.closed = False
+
+            def close(self):
+                self._conn.close()
+                self.closed = True
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+        def spy_connect(*args, **kwargs):
+            c = ConnSpy(real_connect(*args, **kwargs))
+            conns.append(c)
+            return c
+
+        monkeypatch.setattr(memomind_mod.sqlite3, "connect", spy_connect)
+        exporter = memomind_mod.MemoMindMCPExporter(db_path, workspace="default")
+
+        def boom(cursor, name):
+            raise RuntimeError("workspace 创建失败")
+
+        monkeypatch.setattr(exporter, "_get_or_create_workspace", boom)
+        with pytest.raises(RuntimeError):
+            exporter.export(knowledge)
+
+        assert conns, "应调用 sqlite3.connect"
+        assert all(c.closed for c in conns), "异常后连接必须关闭，不得泄漏"
+
+
+def test_memomind_backup_warning_logged(caplog):
+    """直写前输出备份提示（logger.warning）"""
+    import logging
+    from doc_knowledge.exporters.memomind import MemoMindMCPExporter
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = _create_memomind_db(tmpdir)
+        knowledge = _create_test_knowledge_dir(tmpdir, count=1)
+        exporter = MemoMindMCPExporter(db_path, workspace="default")
+
+        with caplog.at_level(logging.WARNING, logger="doc_knowledge.exporters.memomind"):
+            exporter.export(knowledge)
+        assert any("备份" in r.message for r in caplog.records)

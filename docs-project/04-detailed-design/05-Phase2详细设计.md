@@ -1,8 +1,8 @@
 # Doc-Knowledge Phase 2 详细设计
 
 **创建时间**：2026-05-17
-**更新日期**：2026-06-15
-**版本**：v0.2.0
+**更新日期**：2026-08-14
+**版本**：v0.3.0
 
 ---
 
@@ -37,6 +37,27 @@ class MemoMindMCPExporter:
 - `--target memomind --api-url <url>` （HTTP 模式）
 - `--target memomind --db <path>` （MCP 本地模式）
 - `--workspace <name>` （工作区名，默认 "default"）
+
+#### Schema 风险与防护（v0.3.0）
+
+**风险**：MCP 本地模式硬编码 4 张表（`workspaces`/`notes`/`tags`/`note_tags`）的 schema。MemoMind 是第三方应用，升级后 schema 变更方向不可预知，当前实现无任何校验：
+
+| 风险 | 触发 | 后果 |
+|------|------|------|
+| 表/列名变更 | MemoMind 重构 | `OperationalError` 被吞成 error_detail，整体静默失败 |
+| 列语义漂移 | 列保留但含义变（如 content Markdown→HTML） | **写入错误数据且零报错**（最危险） |
+| 主键假设 | `lastrowid` 依赖 AUTOINCREMENT 整数主键 | note_tags 关联错乱 / FK 违规 |
+| 并发直写 | MemoMind 运行中持有连接 | `database is locked` / 磁盘态不一致 |
+| 连接泄漏 | `_get_or_create_workspace` 抛错时 conn 未关闭 | 句柄泄漏 |
+
+**防护（v0.3.0 起）**：
+
+1. **写前 schema 自检** `_validate_memomind_schema(conn)`：`export()` 开写前查询 `sqlite_master` + `PRAGMA table_info`，校验 4 表必需列存在；缺失即抛 `MemoMindSchemaError`，消息提示"改用 HTTP 模式（--api-url）或升级 MemoMind"。**原则：要么写对、要么明确失败，不写坏。**
+2. **连接保护**：`export()` 在 `sqlite3.connect` 后统一 `try/finally` 关闭连接；workspace/tag 创建纳入保护，杜绝泄漏。
+3. **错误区分**：`MemoMindSchemaError` 与单文件错误分开，CLI（export/pipeline）单独 catch 并友好提示，避免 stack trace。
+4. **备份提示**：直写前 `logger.warning` 提示先备份 MemoMind 数据库。
+
+**推荐的持久解**：优先使用 HTTP API 模式（`--api-url`，服务端契约由 MemoMind 维护）；SQLite 直写定位为 fallback，依赖 schema 匹配 + 写前自检兜底。
 
 ---
 
