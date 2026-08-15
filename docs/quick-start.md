@@ -30,7 +30,7 @@ pip install doc-knowledge[excel]  # 仅 Excel
 
 ```bash
 doc-knowledge --version
-# 输出：doc-knowledge, version 0.2.0
+# 输出：doc-knowledge, version 0.3.0
 ```
 
 ---
@@ -68,7 +68,7 @@ doc-knowledge pipeline test-docs --target markdown -o output
 
 **输出**：
 ```
-Doc-Knowledge v0.2.0 — pipeline
+Doc-Knowledge v0.3.0 — pipeline
 源目录: test-docs
 
 Step 1/3: 转换 (A → B)

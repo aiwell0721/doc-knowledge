@@ -69,7 +69,7 @@ doc-knowledge convert ./docs --dry-run
 **解决**：
 - 使用 `-v` 查看具体错误信息
 - 损坏的文件会被跳过，不影响其他文件
-- 如需转换扫描件，安装 OCR 支持：`pip install markitdown-ocr`
+- 扫描件/图片型文档需启用 OCR：`--ocr cloud`（云端 VLM）或 `--ocr slide`（整页渲染），API 配置见 `~/.doc-knowledge/config.yaml`
 
 ---
 
@@ -143,4 +143,4 @@ doc-knowledge convert ./docs --dry-run
 
 **症状**：进度条或彩色输出显示异常。
 
-**解决**：这是终端兼容性问题，不影响功能。使用 `--quiet` 可以禁用彩色输出。
+**解决**：这是终端兼容性问题，不影响功能。如日志输出过多，可用全局选项 `--log-level error` 降低日志级别。

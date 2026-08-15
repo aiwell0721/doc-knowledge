@@ -320,12 +320,14 @@ doc-knowledge pipeline ./large-docs \
 # 转换 PPT 并使用大模型识别图片内容
 doc-knowledge pipeline ./presentations \
   --target markdown \
-  --vision \
-  --api-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
-  --api-key $DASHSCOPE_API_KEY \
-  --model qwen-vl-plus \
+  --ocr cloud \
+  --ocr-api-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
+  --ocr-api-key $DASHSCOPE_API_KEY \
+  --ocr-model qwen-vl-plus \
   -o ./output
 ```
+
+> 若需整页 PPT 语义识别（含版面/图表空间关系），改用 `--ocr slide`，详见第 8 节。
 
 **支持的模型提供商**：
 
