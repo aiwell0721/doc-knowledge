@@ -106,6 +106,7 @@ ocr:
     model: "gpt-4o"
     max_concurrency: 5
     timeout: 60
+    max_tokens: 1024          # 输出上限；glm-4v-flash 限 [1,1024]，Qwen 系可调大（slide 模式复用此值）
 
   local:
     engine: paddleocr       # paddleocr | tesseract

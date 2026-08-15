@@ -30,6 +30,7 @@ def create_ocr_service(config: Config) -> OCRService | SlideFusionService | None
             model=cloud.model,
             max_concurrency=cloud.max_concurrency,
             timeout=cloud.timeout,
+            max_tokens=cloud.max_tokens,
         )
     if mode == "local":
         local = config.ocr.local
@@ -47,6 +48,7 @@ def create_ocr_service(config: Config) -> OCRService | SlideFusionService | None
             max_concurrency=slide.max_concurrency,
             timeout=cloud.timeout,
             libreoffice_path=slide.libreoffice_path,
+            max_tokens=cloud.max_tokens,
         )
     if mode == "hybrid":
         raise NotImplementedError(

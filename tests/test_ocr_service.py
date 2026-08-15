@@ -88,6 +88,20 @@ class TestCloudOCRService:
         assert svc.api_url == mock_api_server
         assert svc.model == "gpt-4o"
 
+    def test_max_tokens_passed_to_vision(self, mock_api_server):
+        """max_tokens 构造参数应传给内部 LLMVisionService"""
+        svc = CloudOCRService(
+            api_url=mock_api_server,
+            api_key="test-key",
+            model="gpt-4o",
+            max_tokens=2048,
+        )
+        assert svc._vision.max_tokens == 2048
+
+    def test_default_max_tokens_is_1024(self, mock_api_server):
+        svc = CloudOCRService(api_url=mock_api_server, api_key="test-key")
+        assert svc._vision.max_tokens == 1024
+
     def test_recognize_single_image(self, mock_api_server, sample_image):
         svc = CloudOCRService(
             api_url=mock_api_server, api_key="test-key", model="gpt-4o"
@@ -147,6 +161,28 @@ class TestCreateOCRService:
         cfg.ocr.cloud.api_key = "test-key"
         svc = create_ocr_service(cfg)
         assert isinstance(svc, CloudOCRService)
+
+    def test_cloud_mode_forwards_max_tokens(self, mock_api_server):
+        """工厂应把 cloud.max_tokens 传给 CloudOCRService"""
+        cfg = Config()
+        cfg.ocr.enabled = True
+        cfg.ocr.mode = "cloud"
+        cfg.ocr.cloud.api_url = mock_api_server
+        cfg.ocr.cloud.api_key = "test-key"
+        cfg.ocr.cloud.max_tokens = 2048
+        svc = create_ocr_service(cfg)
+        assert svc._vision.max_tokens == 2048
+
+    def test_slide_mode_forwards_max_tokens(self):
+        """工厂应把 cloud.max_tokens 传给 SlideFusionService（slide 复用 cloud 配置）"""
+        cfg = Config()
+        cfg.ocr.enabled = True
+        cfg.ocr.mode = "slide"
+        cfg.ocr.cloud.api_url = "http://x"
+        cfg.ocr.cloud.api_key = "k"
+        cfg.ocr.cloud.max_tokens = 1536
+        svc = create_ocr_service(cfg)
+        assert svc._vision.max_tokens == 1536
 
     def test_local_mode_creates_local_service(self):
         from doc_knowledge.ocr.local import LocalOCRService

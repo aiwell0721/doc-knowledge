@@ -16,6 +16,7 @@ class CloudOCRService(OCRService):
         model: str = "gpt-4o",
         max_concurrency: int = 5,
         timeout: int = 60,
+        max_tokens: int = 1024,
     ):
         self.api_url = api_url
         self.api_key = api_key
@@ -26,6 +27,7 @@ class CloudOCRService(OCRService):
             model=model,
             max_workers=max_concurrency,
             timeout=timeout,
+            max_tokens=max_tokens,
         )
 
     def recognize_batch(

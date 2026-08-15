@@ -94,6 +94,7 @@ class SlideFusionService:
         max_concurrency: int = 1,
         timeout: int = 120,
         libreoffice_path: str = "",
+        max_tokens: int = 1024,
     ):
         # 默认并发 1：glm-4.6v-flash 等免费模型的 API 对并发请求限流
         # （并发 >1 会触发 401/连接重置）。用户可在需要时调高。
@@ -114,6 +115,7 @@ class SlideFusionService:
             user_text=self.prompt,
             timeout=timeout,
             max_workers=max_concurrency,
+            max_tokens=max_tokens,
         )
 
     def process_pptx(self, pptx_path: Path, output_dir: Path, verbose: bool = False) -> dict[int, str]:

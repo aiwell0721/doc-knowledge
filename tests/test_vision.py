@@ -204,6 +204,11 @@ class TestLLMVisionServiceInit:
         assert svc.max_workers == 5
         assert isinstance(svc.filter, ImageFilter)
 
+    def test_default_max_tokens_is_1024(self):
+        """默认 max_tokens=1024（glm-4v-flash 上限的安全交集）"""
+        svc = LLMVisionService(api_url="https://api.example.com", api_key="key")
+        assert svc.max_tokens == 1024
+
     def test_default_prompt_has_digit_shape_constraints(self):
         """默认 prompt 必须含数字形状特征约束与不确定标注"""
         svc = LLMVisionService(
@@ -275,6 +280,23 @@ class TestLLMVisionServiceRecognizeImage:
             svc = LLMVisionService(api_url="https://api.example.com", api_key="key")
             result = svc.recognize_image(fp)
         assert "test image description" in result
+
+    def test_payload_max_tokens_from_config(self, tmp_path):
+        """payload 的 max_tokens 使用构造参数，而非硬编码 2000"""
+        fp = _create_noise_image(tmp_path, "mt.png", size=(200, 200))
+        captured = {}
+
+        def capture(req, **kwargs):
+            captured["data"] = json.loads(req.data)
+            return _make_mock_response("ok")
+
+        with patch("doc_knowledge.vision.urllib.request.urlopen", side_effect=capture):
+            svc = LLMVisionService(
+                api_url="https://api.example.com", api_key="key", max_tokens=2048
+            )
+            svc.recognize_image(fp)
+
+        assert captured["data"]["max_tokens"] == 2048
 
     def test_content_null_fallback_to_reasoning(self, tmp_path):
         """推理模型 content 为 null 时回退读取 reasoning 字段"""

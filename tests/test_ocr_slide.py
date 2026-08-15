@@ -137,6 +137,14 @@ class TestSlideFusionServiceInit:
         assert svc.prompt == "自定义提示"
         assert svc.libreoffice_path == "C:/soffice.exe"
 
+    def test_max_tokens_default_and_forwarded(self):
+        """默认 1024；自定义 max_tokens 传给内部 LLMVisionService"""
+        svc = SlideFusionService(api_url="http://x", api_key="k")
+        assert svc._vision.max_tokens == 1024
+
+        svc2 = SlideFusionService(api_url="http://x", api_key="k", max_tokens=2048)
+        assert svc2._vision.max_tokens == 2048
+
 
 class TestConvertPptxToPdf:
     """soffice 转换命令"""

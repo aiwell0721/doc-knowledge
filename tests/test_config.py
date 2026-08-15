@@ -24,6 +24,7 @@ class TestConfigDefaults:
         assert cloud.model == "gpt-4o"
         assert cloud.max_concurrency == 5
         assert cloud.timeout == 60
+        assert cloud.max_tokens == 1024
 
     def test_ocr_local_defaults(self):
         cfg = load_config(config_path=Path("/nonexistent/path/config.yaml"))
@@ -76,6 +77,12 @@ class TestConfigFromFile:
         assert cfg.ocr.cloud.model == "qwen-vl-plus"
         assert cfg.ocr.local.engine == "tesseract"
         assert cfg.ocr.hybrid.confidence_threshold == 0.8
+
+    def test_cloud_max_tokens_override(self):
+        """ocr.cloud.max_tokens 可被 YAML 覆盖（默认 1024 → 2048）"""
+        data = {"ocr": {"enabled": True, "cloud": {"max_tokens": 2048}}}
+        cfg = _load_from_dict(data)
+        assert cfg.ocr.cloud.max_tokens == 2048
 
     def test_partial_override_keeps_defaults(self):
         """只覆盖部分字段，其余保持默认"""

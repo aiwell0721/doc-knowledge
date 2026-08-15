@@ -19,6 +19,7 @@ class CloudOCRConfig:
     model: str = "gpt-4o"
     max_concurrency: int = 5
     timeout: int = 60
+    max_tokens: int = 1024  # 输出上限；glm-4v-flash 限 [1,1024]，默认取安全值
 
 
 @dataclass
@@ -104,6 +105,7 @@ def _build_config(raw: dict) -> Config:
         model=cloud_raw.get("model", CloudOCRConfig.model),
         max_concurrency=cloud_raw.get("max_concurrency", CloudOCRConfig.max_concurrency),
         timeout=cloud_raw.get("timeout", CloudOCRConfig.timeout),
+        max_tokens=cloud_raw.get("max_tokens", CloudOCRConfig.max_tokens),
     )
 
     local_raw = ocr_raw.get("local", {})

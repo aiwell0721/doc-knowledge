@@ -106,10 +106,12 @@ class LLMVisionService:
         timeout: int = 120,
         max_workers: int = 5,
         max_image_size: int = 2 * 1024 * 1024,  # 2MB
+        max_tokens: int = 1024,  # glm-4v-flash 上限 1024（实测 2000 报 400）；qwen-vl 系可调大
     ):
         self.api_url = api_url.rstrip("/") + "/chat/completions"
         self.api_key = api_key
         self.model = model
+        self.max_tokens = max_tokens
         self.system_prompt = system_prompt or (
             "请识别图片中的所有文字内容。保持原文的排版顺序。"
             "如果是图表，请描述图表的主要内容和数据。"
@@ -174,7 +176,7 @@ class LLMVisionService:
                     ]
                 }
             ],
-            "max_tokens": 2000,
+            "max_tokens": self.max_tokens,
         }
         
         data = json.dumps(payload).encode("utf-8")
