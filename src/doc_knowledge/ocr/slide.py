@@ -62,12 +62,15 @@ def _page_num(img: Path) -> int:
     return int(m.group(1)) if m else 0
 
 
-def _is_success(text: str) -> bool:
+def _is_success(text: str | None) -> bool:
     """识别成功判定：非空且非错误标记（[图片识别失败: ...] / [图片解析失败: ...]）
 
     不再用"以 [ 开头即失败"：约定标记 Markdown（[DK-标题] 等）也以 [ 开头，
     精确匹配错误前缀，避免把正常标记输出误判为失败而无限重试。
+    text 可为 None（推理模型 content:null 时回退后仍可能为空），None 判定为失败。
     """
+    if text is None:
+        return False
     return bool(text.strip()) and not text.startswith(
         ("[图片识别失败", "[图片解析失败")
     )

@@ -61,11 +61,17 @@ def _create_small_file(tmp_path: Path, filename: str) -> Path:
 
 # ── Mock helpers ──
 
-def _make_mock_response(content="ok"):
-    """Create a mock response object for urlopen."""
+def _make_mock_response(content="ok", reasoning=None):
+    """Create a mock response object for urlopen.
+
+    reasoning 非 None 时附加该字段，模拟推理模型 content:null 的返回。
+    """
+    message = {"content": content}
+    if reasoning is not None:
+        message["reasoning"] = reasoning
     mock_response = MagicMock()
     mock_response.read.return_value = json.dumps({
-        "choices": [{"message": {"content": content}}]
+        "choices": [{"message": message}]
     }).encode("utf-8")
     mock_response.__enter__ = MagicMock(return_value=mock_response)
     mock_response.__exit__ = MagicMock(return_value=False)
@@ -269,6 +275,16 @@ class TestLLMVisionServiceRecognizeImage:
             svc = LLMVisionService(api_url="https://api.example.com", api_key="key")
             result = svc.recognize_image(fp)
         assert "test image description" in result
+
+    def test_content_null_fallback_to_reasoning(self, tmp_path):
+        """推理模型 content 为 null 时回退读取 reasoning 字段"""
+        fp = _create_noise_image(tmp_path, "reasoning.png", size=(200, 200))
+        with patch("doc_knowledge.vision.urllib.request.urlopen",
+                   return_value=_make_mock_response(
+                       content=None, reasoning="这是推理模型的识别文本")):
+            svc = LLMVisionService(api_url="https://api.example.com", api_key="key")
+            result = svc.recognize_image(fp)
+        assert "推理模型的识别文本" in result
 
     def test_url_error(self, tmp_path):
         """网络错误处理"""

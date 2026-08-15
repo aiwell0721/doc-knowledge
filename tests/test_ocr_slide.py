@@ -18,7 +18,29 @@ from pathlib import Path
 
 import pytest
 
-from doc_knowledge.ocr.slide import SlideFusionService
+from doc_knowledge.ocr.slide import SlideFusionService, _is_success
+
+
+class TestIsSuccess:
+    """_is_success() 识别成功判定"""
+
+    def test_none_input_returns_false(self):
+        """推理模型 content:null 时 text 可能为 None，应返回 False 而非抛异常"""
+        assert _is_success(None) is False
+
+    def test_empty_or_whitespace_returns_false(self):
+        """空串/纯空白应判定失败（触发 slide 重试）"""
+        assert _is_success("") is False
+        assert _is_success("   ") is False
+
+    def test_error_marker_returns_false(self):
+        """错误标记（[图片识别失败/解析失败]）应判定失败"""
+        assert _is_success("[图片识别失败: HTTP 429]") is False
+        assert _is_success("[图片解析失败: KeyError]") is False
+
+    def test_normal_markup_returns_true(self):
+        """正常约定标记 Markdown 应判定成功"""
+        assert _is_success("[DK-标题]\n测试页\n[DK-正文]\n**总**：内容") is True
 
 
 class _SlideAPIHandler(BaseHTTPRequestHandler):

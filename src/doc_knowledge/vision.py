@@ -189,7 +189,11 @@ class LLMVisionService:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
-                return result["choices"][0]["message"]["content"]
+                # 推理模型（如 qwen3.6）可能返回 content:null，实际文本在 reasoning 字段。
+                # 保留 choices/message 硬索引：结构缺失仍走下方异常分支返回 [图片解析失败]。
+                message = result["choices"][0]["message"]
+                content = message.get("content") or message.get("reasoning") or ""
+                return content
         except urllib.error.HTTPError as e:
             # HTTPError 是 URLError 子类，需先捕获以保留状态码
             logger.warning("图片识别 HTTP 错误 %s: %s (%s)", e.code, e.reason, image_path.name)

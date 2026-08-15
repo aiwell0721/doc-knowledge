@@ -417,6 +417,24 @@ ocr:
     model: "glm-4.6v-flash"
 ```
 
+### 7.5.1 推理模型兼容（content:null → reasoning 回退，2026-08-15）
+
+部分推理类 VLM（如 qwen3.6-35b 等 Qwen 推理系列）在 OpenAI 兼容接口下，
+`message.content` 可能为 `null`，实际推理文本位于 `message.reasoning` 字段。
+不处理时 `content` 直接穿透为 `None`，导致成功判定处 `AttributeError` 崩溃。
+
+| 修复点 | 文件 | 行为 |
+|------|------|------|
+| 图像级接口回退 | `vision.py` `recognize_image` | `content` 为空（null/空串）时回退读取 `reasoning`，仍为空则返回 `""`（slide 模式据此重试） |
+| 成功判定防御 | `ocr/slide.py` `_is_success` | 入参改为 `str \| None`，`None` 直接返回 `False`，杜绝 `AttributeError` |
+
+要点：
+
+- 保留 `result["choices"][0]["message"]` 硬索引——响应结构缺失（无 `choices`/`message`）
+  仍走 `KeyError/IndexError` 异常分支，返回 `[图片解析失败: ...]`，不改变既有错误语义。
+- `recognize_image` 保证返回 `str`（空串兜底），`_is_success("")` 为 `False`，
+  使 slide 模式对空结果触发重试而非崩溃。
+
 ### 7.6 本地视觉模型评估结论（决策记录，2026-08-09）
 
 曾考虑用**本地视觉模型**（OvisOCR2 0.8B 端到端文档解析 / GLM-5V-Turbo / Tesseract+MobileNet+OpenCV）替代云端 VLM 做三位一体意图识别，结论如下：
